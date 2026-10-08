@@ -68,14 +68,22 @@ after. The suite follows a few rules worth knowing:
 `Tests/Fixtures~/` holds the `.shadergraph` assets the suite parses. The `~` suffix keeps Unity from
 importing them as real shaders. They are:
 
-| Fixture | Nodes | Edges | What it exercises |
-|---|---|---|---|
-| `UnlitBasic.shadergraph` | 8 | 4 | The small case; the minimum that still has a fan-out |
-| `PropertyTypes.shadergraph` | 8 | 7 | One node per property type, for the value and port-colour paths |
-| `TerrainSimple.shadergraph` | 38 | 45 | The mid-size case: groups, sticky notes, a master stack, long edges |
+| Fixture | Nodes | Edges | Upstream source | What it exercises |
+|---|---|---|---|---|
+| `UnlitBasic.shadergraph` | 8 | 4 | `com.unity.shadergraph/GraphTemplates/BuiltIn/BuiltIn Unlit Basic.shadergraph` | The small case; the minimum that still has a fan-out |
+| `PropertyTypes.shadergraph` | 8 | 7 | authored for this package | One node per property type, for the value and port-colour paths |
+| `TerrainSimple.shadergraph` | 38 | 45 | `com.unity.shadergraph/GraphTemplates/Cross Pipeline/Terrain Simple.shadergraph` | The mid-size case: groups, sticky notes, a master stack, long edges |
+
+Two of the three are Unity's own graph templates, copied **unmodified** — verify with `md5sum` against the
+package copy. That is deliberate: a real graph exercises the parser and the layout in ways a hand-built
+fixture would not, and keeping them byte-identical means a failure can be reproduced against the upstream
+file. Do not edit them. If a test needs a variation, add a new fixture rather than modifying these.
+
+`PropertyTypes.shadergraph` is the exception, because no Unity template has one node per property type.
 
 If you add one, add it here with a note in this table, and make sure at least one test parses it — a
-fixture nothing reads is dead weight.
+fixture nothing reads is dead weight. Fixtures from a package are the cheapest to add: they are already
+real, and the parser test's counts can be checked against the graph in the editor.
 
 ## Pull requests
 

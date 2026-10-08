@@ -261,6 +261,54 @@ namespace ShaderSnap.Tests
             Assert.AreEqual("Unknown", SnippetStyle.DescribePortType(null));
         }
 
+        /// <summary>
+        /// A group frame reaches above the topmost node it wraps to make room for its title, so the space
+        /// reserved around the graph has to include that overhang.
+        ///
+        /// It did not: the layout padded the canvas for the nodes only, the frame was placed above that
+        /// padding, and its title was drawn outside the content area — under the window chrome and cut in
+        /// half. The frame's own rectangle is what has to stay inside, not just the nodes'.
+        /// </summary>
+        [Test]
+        public void GroupFramesStayInsideTheReservedInset()
+        {
+            GraphModel model = Load(TerrainPath);
+            Assert.IsNotEmpty(model.groups, "the fixture must contain a group for this to test anything");
+
+            const float frameInnerGap = 16f;
+            foreach (float margin in new[] { 0f, 24f, 64f })
+            {
+                var preset = ScriptableObject.CreateInstance<SnippetExportPreset>();
+                preset.showGroups = true;
+                preset.showNotes = false;
+                preset.frameMargin = margin;
+
+                var canvas = new SnippetCanvasRenderer();
+                canvas.SetData(model, preset, "TerrainSimple");
+                GraphLayout layout = canvas.Layout;
+
+                float inset = Mathf.Max(LayoutMetrics.Default.Padding, margin + frameInnerGap);
+                float overhang = GraphAutoLayoutEngine.GroupChromeOverhang(LayoutMetrics.Default);
+                Assert.Greater(overhang, 0f, "a group frame must reserve room for its title");
+
+                foreach (GraphGroup group in model.groups)
+                {
+                    Assert.IsTrue(layout.groupRects.TryGetValue(group.id, out Rect frame),
+                        $"group '{group.title}' must have a frame");
+
+                    Assert.GreaterOrEqual(frame.xMin, inset - 0.01f,
+                        $"margin {margin}: group '{group.title}' frame starts left of the inset");
+                    Assert.GreaterOrEqual(frame.yMin, inset - 0.01f,
+                        $"margin {margin}: group '{group.title}' title strip reaches above the reserved inset, " +
+                        "so it is drawn outside the content area");
+                    Assert.LessOrEqual(frame.xMax, layout.size.x - inset + 0.01f,
+                        $"margin {margin}: group '{group.title}' frame runs past the right inset");
+                    Assert.LessOrEqual(frame.yMax, layout.size.y - inset + 0.01f,
+                        $"margin {margin}: group '{group.title}' frame runs past the bottom inset");
+                }
+            }
+        }
+
         [Test]
         public void BandsStayInsideTheFrameForEveryMargin()
         {

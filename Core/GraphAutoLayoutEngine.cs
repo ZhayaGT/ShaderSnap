@@ -81,7 +81,14 @@ namespace ShaderSnap.Core
             // The frame is drawn around the content, so the content has to keep clear of it. Using the
             // larger of the design padding and the requested inset keeps both the graph and the bands
             // inside the frame no matter how wide the frame margin is set.
+            //
+            // Group frames are then added on top: a frame reaches GroupChromeOverhang above the topmost
+            // node it wraps, and the caller's inset only describes where the nodes may start. Without this
+            // the frame's title strip was laid out above the content area and drawn under the window
+            // chrome, half cut off.
             float pad = Mathf.Max(metrics.Padding, options.canvasInset);
+            if (options.showGroupFrames && model != null && model.groups.Count > 0)
+                pad += GroupChromeOverhang(metrics);
             var result = new GraphLayout();
             if (model == null || model.nodes.Count == 0) return result;
 
@@ -288,6 +295,23 @@ namespace ShaderSnap.Core
             return result;
         }
 
+        /// <summary>
+        /// How far a group frame reaches above its topmost member.
+        ///
+        /// A frame wraps its members and adds room for its title, so the frame's top edge sits above the
+        /// topmost node by this much. Anything reserving space around the graph has to account for it, or
+        /// the frame — and the title drawn in it — ends up outside the area that was reserved. Public so
+        /// the renderer can compute the same inset the engine places against.
+        /// </summary>
+        public static float GroupChromeOverhang(LayoutMetrics metrics)
+        {
+            return GroupFramePad(metrics) + GroupFrameTitleStrip(metrics);
+        }
+
+        static float GroupFramePad(LayoutMetrics metrics) => metrics.PortRowHeight * 0.6f;
+
+        static float GroupFrameTitleStrip(LayoutMetrics metrics) => metrics.PortRowHeight;
+
         /// <summary>Frame around every group, sized to its members plus room for the title.</summary>
         static void BuildGroupFrames(GraphModel model, LayoutMetrics metrics, GraphLayout result)
         {
@@ -311,8 +335,8 @@ namespace ShaderSnap.Core
                 if (!started) continue;
 
                 // The pad has to clear the title strip and stay inside the gap so frames never touch.
-                float pad = metrics.PortRowHeight * 0.6f;
-                float titleStrip = metrics.PortRowHeight;
+                float pad = GroupFramePad(metrics);
+                float titleStrip = GroupFrameTitleStrip(metrics);
                 result.groupRects[group.id] = new Rect(
                     frame.x - pad,
                     frame.y - pad - titleStrip,

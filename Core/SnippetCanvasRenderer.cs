@@ -81,24 +81,22 @@ namespace ShaderSnap.Core
         }
 
         /// <summary>
-        /// Distance the graph and the bands keep from the canvas edge. With a frame on, this has to exceed
-        /// the frame margin or the border would run through the content and the bands would poke out
-        /// below the frame; the engine applies the same value as its padding.
+        /// Distance the graph and the bands keep from the canvas edge, so the macOS frame border never runs
+        /// through the content and the bands never poke out below the frame. The engine applies the same
+        /// value as its padding.
+        ///
+        /// Group frames are not part of this number: they reach above the topmost node they wrap, and that
+        /// overhang is reserved by <see cref="GraphAutoLayoutEngine"/> itself.
         /// </summary>
-        float EffectivePadding()
+        float ContentInset()
         {
-            if (preset == null || !preset.showMacOsFrame) return metrics.Padding;
-            return Mathf.Max(metrics.Padding, FrameMargin() + FrameInnerGap);
+            return preset != null ? InsetFor(preset, metrics) : metrics.Padding;
         }
 
         /// <summary>Layout options mirroring the preset, so the engine never sees the preset itself.</summary>
         static LayoutOptions OptionsFor(SnippetExportPreset preset, LayoutMetrics metrics)
         {
             if (preset == null) return LayoutOptions.Default;
-            float inset = preset.showMacOsFrame
-                ? Mathf.Max(metrics.Padding, Mathf.Clamp(preset.frameMargin, 0f, 64f) + FrameInnerGap)
-                : metrics.Padding;
-
             return new LayoutOptions
             {
                 balance = preset.layoutBalance,
@@ -106,8 +104,22 @@ namespace ShaderSnap.Core
                 highlightCriticalPath = preset.highlightCriticalPath,
                 reserveNotesBand = preset.showNotes,
                 reserveLegendBand = preset.showPortLegend,
-                canvasInset = inset
+                showGroupFrames = preset.showGroups,
+                canvasInset = InsetFor(preset, metrics)
             };
+        }
+
+        /// <summary>
+        /// The inset a preset implies, independent of the instance the renderer holds.
+        ///
+        /// This is the frame chrome only. Group frames reach above the topmost node they wrap, but that
+        /// overhang is added by the layout engine, which is the code that knows how far a frame reaches —
+        /// adding it here as well would reserve it twice and push the graph down for no reason.
+        /// </summary>
+        static float InsetFor(SnippetExportPreset preset, LayoutMetrics metrics)
+        {
+            if (!preset.showMacOsFrame) return metrics.Padding;
+            return Mathf.Max(metrics.Padding, Mathf.Clamp(preset.frameMargin, 0f, 64f) + FrameInnerGap);
         }
 
         public void Refresh()
@@ -141,6 +153,7 @@ namespace ShaderSnap.Core
                 && a.highlightCriticalPath == b.highlightCriticalPath
                 && a.reserveNotesBand == b.reserveNotesBand
                 && a.reserveLegendBand == b.reserveLegendBand
+                && a.showGroupFrames == b.showGroupFrames
                 && Mathf.Approximately(a.canvasInset, b.canvasInset);
         }
 

@@ -16,7 +16,7 @@ namespace ShaderSnap.Core
         /// </summary>
         void DrawColumnGuides(Painter2D painter, MeshGenerationContext context)
         {
-            float pad = EffectivePadding();
+            float pad = ContentInset();
             float top = pad * 0.55f;
             float graphBottom = contentSize.y - pad - layout.BandHeight;
             if (graphBottom <= top) return;
@@ -120,8 +120,8 @@ namespace ShaderSnap.Core
             float boxWidth = LegendBoxWidth();
             float boxHeight = metrics.PortRowHeight * 0.6f * 2f + entries.Count * rowHeight;
 
-            // Anchored to the bottom of the content area, which EffectivePadding keeps clear of the frame.
-            float pad = EffectivePadding();
+            // Anchored to the bottom of the content area, which ContentInset keeps clear of the frame.
+            float pad = ContentInset();
             var box = new Rect(pad, contentSize.y - pad - boxHeight, boxWidth, boxHeight);
 
             painter.fillColor = SnippetStyle.PanelFill;
@@ -205,7 +205,7 @@ namespace ShaderSnap.Core
             float gap = metrics.PortRowHeight;
 
             // The bands live inside the same inset the graph respects, so the frame never clips them.
-            float pad = EffectivePadding();
+            float pad = ContentInset();
             float bandsBottom = contentSize.y - pad;
             float top = bandsBottom - layout.BandHeight;
 

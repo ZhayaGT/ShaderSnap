@@ -27,6 +27,13 @@ namespace ShaderSnap.Core
         public bool reserveLegendBand;
 
         /// <summary>
+        /// Whether group frames are drawn. Only affects the space reserved around the graph: a frame
+        /// reaches above its topmost member to make room for its title, so the caller's inset has to
+        /// include that overhang or the title is drawn outside the content area.
+        /// </summary>
+        public bool showGroupFrames;
+
+        /// <summary>
         /// Minimum distance the graph and the bands keep from the canvas edge. The renderer raises this
         /// when a macOS frame is drawn, so the frame border can never cross the content and the bands
         /// always sit inside the frame rather than poking through its bottom edge.

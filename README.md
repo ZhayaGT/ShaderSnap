@@ -74,6 +74,33 @@ The graph is drawn at a fixed 1x canvas size, and `Resolution Multiplier` supers
 The multiplier changes how many pixels each canvas unit gets, not the layout, so raising it sharpens the
 image without moving anything.
 
+### Graphs to try first
+
+Shader Graph ships a set of templates and samples under
+`Packages/com.unity.shadergraph/GraphTemplates/` and `Samples~/`. They are real graphs of increasing size,
+which makes them the quickest way to see what the tool does. Measured at the default settings:
+
+| Graph | Nodes | Edges | 1x canvas | Max multiplier | Good for |
+|---|---|---|---|---|---|
+| `GraphTemplates/BuiltIn/BuiltIn Unlit Basic` | 8 | 4 | 1157 x 442 | 4x | The minimum case; one clean column run |
+| `GraphTemplates/Cross Pipeline/Unlit Simple` | 10 | 4 | 1157 x 442 | 4x | Comparing against the above |
+| `GraphTemplates/Cross Pipeline/0_Decal Simple` | 11 | 7 | 1413 x 442 | 4x | A short fan-out |
+| `GraphTemplates/Cross Pipeline/UGUI Canvas Meter` | 14 | 12 | 1683 x 660 | 4x | A UGUI graph: one stack, not the usual two |
+| `GraphTemplates/BuiltIn/BuiltIn Lit Basic` | 26 | 22 | 2041 x 1251 | 4x | The first genuinely branching graph |
+| `GraphTemplates/Cross Pipeline/2_Particle Lit` | 27 | 17 | 1375 x 1248 | 4x | Groups, and a compact silhouette |
+| `Samples~/FeatureExamples/Blending Masks/HeightMask` | 26 | 21 | 2102 x 1574 | 4x | Groups and sticky notes together, plus a subgraph |
+| `GraphTemplates/Cross Pipeline/Terrain Simple` | 38 | 45 | 3520 x 1870 | 3x | The mid-size case: long edges, a group, two notes |
+| `GraphTemplates/Cross Pipeline/1_Lit Full` | 99 | 108 | 9310 x 2061 | 1x | The stress case, and the width limit — see below |
+
+The max multiplier column is the device's limit, not a recommendation: 2x is already sharper than any
+screen shows at once. It is there because two of these graphs cannot go as high as the slider allows.
+
+`1_Lit Full` is 9310 units wide, so it exports at 1x only: 2x would ask for 18620 pixels, past the device's
+maximum texture size. It is the graph that exposed that limit, and the one to open when you want to see how
+the layout handles long edges and a dense middle. `Terrain Simple` stops at 3x for the same reason.
+
+The `Terrain Simple` template is the graph in the screenshot at the top of this page.
+
 ### Options
 
 | Section | Option | What it does |
@@ -111,14 +138,14 @@ Measured on the 38-node Terrain fixture, viewed fit-to-window on a 1600x900 scre
 
 | Text Scale | Canvas | Node title on screen | Port label on screen |
 |---|---|---|---|
-| 1.0 | 2864 x 1274 | 8.4 px | 6.7 px |
-| 1.5 | 3414 x 1765 | 10.5 px | 8.4 px |
-| 2.0 | 4198 x 2273 | 11.4 px | 9.1 px |
-| 3.0 | 5765 x 3238 | 12.5 px | 10.0 px |
+| 1.0 | 2934 x 1344 | 8.2 px | 6.5 px |
+| 1.5 | 3520 x 1870 | 10.2 px | 8.2 px |
+| 2.0 | 4339 x 2414 | 11.1 px | 8.9 px |
+| 3.0 | 5976 x 3449 | 11.7 px | 9.4 px |
 
 The canvas grows along with the text — partly in height, and partly in width, because wider fonts need
 wider node boxes to avoid clipping titles. That is why the on-screen gain flattens: from 1.5 to 3.0 the
-text doubles but the fitted view only improves from 10.5 px to 12.5 px. The default sits at 1.5, where the
+text doubles but the fitted view only improves from 10.2 px to 11.7 px. The default sits at 1.5, where the
 curve is still steep.
 
 ### Node width is measured, not fixed
@@ -137,7 +164,7 @@ type — both taken from Shader Graph's own stylesheets, so the output matches t
 
 ## Running the tests
 
-The package ships an EditMode suite (85 tests). Unity only compiles a package's test assembly when the
+The package ships an EditMode suite (92 tests). Unity only compiles a package's test assembly when the
 package is listed as a testable, so add it to `Packages/manifest.json` first:
 
 ```json
@@ -177,12 +204,16 @@ registry and the files on disk disagree; reimporting the package usually clears 
 `PanelSettings.panel` and four methods on the internal `Panel` type. Unity renamed or removed one of them.
 The message names which one. ShaderSnap is built and tested against Unity 6000.3.
 
-**The export is slow on a large graph.** Cost grows with node count and multiplier. A 99-node graph at 2x
-takes a few seconds. Lower the multiplier, or turn off `Show Node Values` and `Highlight Critical Path`,
-both of which add work per node.
+**The export is slow on a large graph.** Cost grows with node count and multiplier. Measured on this
+machine: the 38-node Terrain graph at 4x takes about 5 s, and the 99-node reference graph at 1x about 1.2 s.
+Lower the multiplier, or turn off `Show Node Values` and `Highlight Critical Path`, both of which add work
+per node. Note that a graph wide enough will not accept a high multiplier at all — see the next entry.
 
-**"Resolution … exceeds the memory budget".** The export is capped at 96 million pixels. Lower
-`Resolution Multiplier`.
+**"Resolution … exceeds the memory budget" or "exceeds this device's … maximum texture size".** Two limits,
+both checked before anything is allocated. The **maximum texture size** is the device's ceiling on any
+texture edge (`SystemInfo.maxTextureSize`, commonly 16384); a wide graph hits it first, because the 99-node
+reference graph is 9310 units wide and a 2x export would ask for 18620 pixels. The **memory budget** is
+96 MiB, about 100 million pixels. Either way, lower `Resolution Multiplier`.
 
 ## How it works
 

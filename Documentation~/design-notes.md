@@ -35,6 +35,29 @@ so the same graph always produces the same image regardless of editing history.
 
 The cost is that the output does not match the editor's node positions. That is the point.
 
+### The layout reserves the space a group frame reaches into
+
+A group frame is not the same size as its members. It wraps them and adds a title strip above the topmost
+one, so the frame's top edge sits `PortRowHeight × 1.6` above the node it wraps — 35 units at the default
+text scale.
+
+The first implementation padded the canvas for the nodes and let the frame be drawn wherever its members
+were. On a graph with groups, that put the frame above the reserved area: its title strip landed under the
+window chrome and was cut in half. The fix is that the engine adds `GroupChromeOverhang` to its padding when
+group frames are on, so the frame's rectangle — not just the nodes' — is inside the content area.
+
+Two details worth keeping:
+
+- The overhang is added in **one** place, the engine. An earlier version also added it in the renderer's
+  inset calculation, which reserved it twice and pushed the graph down for no reason.
+- `LayoutOptions.showGroupFrames` exists so the engine knows whether to reserve it at all. Toggling
+  `Group Frames` therefore changes the canvas size, and `Refresh` compares the flag so the preview re-lays
+  out rather than keeping the old size.
+
+The cost is a slightly larger canvas on graphs with groups. On the 38-node Terrain graph it is the
+difference between 4x fitting and not fitting the memory budget, which is why `Group Frames` is worth
+turning off when the graph is only wanted at maximum resolution.
+
 ### Long edges get reserved rows, not avoidance
 
 A wire that spans several columns has to cross the columns in between. The naive fix is to detect
@@ -70,26 +93,26 @@ outright — which is what `textScale` does.
 The default was 1.0, which on a 38-node graph put a node title at 8.4 px once the image was fitted to a
 1600×900 screen. That is the "text is too small" problem, and it was not a scaling bug: raising
 `resolutionMultiplier` makes the image bigger while the text-to-canvas ratio stays identical, so the fitted
-view looks exactly the same. The default is now 1.5, where the title reaches 10.5 px.
+view looks exactly the same. The default is now 1.5, where the title reaches 10.2 px.
 
 Measured across the range, at fit-to-window on 1600×900:
 
 | Text Scale | Canvas | Node title on screen | Port label on screen |
 |---|---|---|---|
-| 1.0 | 2864 × 1274 | 8.4 px | 6.7 px |
-| 1.5 | 3414 × 1765 | 10.5 px | 8.4 px |
-| 2.0 | 4198 × 2273 | 11.4 px | 9.1 px |
-| 3.0 | 5765 × 3238 | 12.5 px | 10.0 px |
+| 1.0 | 2934 × 1344 | 8.2 px | 6.5 px |
+| 1.5 | 3520 × 1870 | 10.2 px | 8.2 px |
+| 2.0 | 4339 × 2414 | 11.1 px | 8.9 px |
+| 3.0 | 5976 × 3449 | 11.7 px | 9.4 px |
 
 The canvas grows with the text in both directions — height because rows and title bars get taller, width
 because the measured node boxes widen so titles are not clipped. That is why the on-screen gain flattens:
-from 1.5 to 3.0 the text doubles but the fitted view improves by only 2 px. 1.5 is where the curve is still
+from 1.5 to 3.0 the text doubles but the fitted view improves by only 1.5 px. 1.5 is where the curve is still
 steep.
 
 ### `autoAspect` is off by default
 
 The aspect solver stretches the vertical gaps to reach a target canvas shape. Measured on the fixtures at
-text scale 1.5, turning it on grew the canvas from 3414×1765 to 3414×2133 for the Terrain graph and from
+text scale 1.5, turning it on grew the canvas from 3520×1870 to 3520×2198 for the Terrain graph and from
 3588×792 to 3588×2241 for the property-types graph — while the text stayed exactly the same size.
 
 That is pure empty space. Once the image is fitted to a screen, a taller canvas with the same text makes the
@@ -103,11 +126,11 @@ once fitted to a screen. Measured on the 38-node Terrain fixture across fifteen 
 
 | Column Balance | Node Locality | Canvas | Tallest column | Fit scale |
 |---|---|---|---|---|
-| 0.0 | any | 3574 × 2559 | 2164 | 0.352 |
-| 0.25 | 1.0 | 3574 × 2450 | 2055 | 0.367 |
-| 0.5 | 1.0 | 3514 × 1856 | 1461 | 0.455 |
-| 0.75 | 1.0 | 3474 × 1745 | 1322 | 0.461 |
-| **1.0** | **1.0** | **3414 × 1765** | **1342** | **0.469** |
+| 0.0 | any | 3680 × 2664 | 2164 | 0.338 |
+| 0.25 | 1.0 | 3680 × 2555 | 2055 | 0.352 |
+| 0.5 | 1.0 | 3620 × 1961 | 1461 | 0.442 |
+| 0.75 | 1.0 | 3580 × 1850 | 1322 | 0.447 |
+| **1.0** | **1.0** | **3520 × 1870** | **1342** | **0.455** |
 
 `balance = 1`, `locality = 1` — the defaults — give the tallest fit scale of the fifteen, so a graph with a
 narrowing tail is laid out as compactly as this algorithm can make it. Lowering `Column Balance` shortens
@@ -120,7 +143,7 @@ column their consumers are in.
 
 ### `resolutionMultiplier` defaults to 1
 
-A 38-node graph already produces a 3414 px-wide image at 1x, which is wider than any viewer shows at once.
+A 38-node graph already produces a 3520 px-wide image at 1x, which is wider than any viewer shows at once.
 Doubling it spends four times the memory and four times the render time for detail the viewer will not see
 without zooming. It is a quality knob for print and crop, not a default.
 
@@ -262,9 +285,11 @@ What was actually exercised, rather than assumed:
   the time of measurement), with the larger sizes verified by construction through the multiplier.
 - Determinism was verified by exporting twice and comparing bytes.
 - The frame regression was verified by reintroducing the bug and watching the test fail (25/26 → 26/26).
-- The readability changes were verified by measuring the exported PNGs: node coverage rose from 18.6% to
-  25.4% of the canvas, the bounding-box fill from 22.6% to 33.5%, and the effective node-title size at
-  fit-to-window from 5.6 px to 10.5 px.
+- The readability changes were verified by measuring the exported PNGs. Against the original settings the
+  38-node Terrain graph exported at 5728x3588 with 18.6% of the canvas covered by node pixels and a 22.6%
+  bounding-box fill, and a node title measured 5.6 px once fitted to a 1600x900 screen. At the current
+  defaults it exports at 3521x1871 with 23.2% coverage and a 30.5% fill, and the title measures 10.2 px.
+  The canvas is smaller, denser, and nearly twice as legible.
 - The text-scale table in the README and here was produced by measuring the canvas and the fitted scale for
   six values, not by estimation.
 - The package-path fix was verified by loading the stylesheet through `PackageInfo` and resolving every

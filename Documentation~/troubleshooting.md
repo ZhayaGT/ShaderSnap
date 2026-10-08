@@ -59,12 +59,22 @@ bug — something in the drawing path has picked up a non-deterministic input, s
 or reading the clock. The watermark's date is injectable through `SnippetExportPreset.clock` for exactly
 this reason.
 
-## "Resolution … exceeds the memory budget"
+## "Resolution … exceeds the … budget" or "exceeds this device's … maximum texture size"
 
-**Cause.** The export is capped at 96 million pixels. A 38-node graph at 4x is about 107 MP.
+**Cause.** Two limits, both checked before anything is allocated:
 
-**Fix.** Lower `Resolution Multiplier`. If you need the size, export at 2x and raise `Text Scale` instead —
-that improves readability without the pixel cost.
+- **maximum texture size** — the device refuses any texture edge past `SystemInfo.maxTextureSize`
+  (commonly 16384). A wide graph hits this first: the 99-node reference graph is 9310 units wide, so a 2x
+  export asks for 18620 pixels, which fits the memory budget and still cannot be allocated.
+- **memory budget** — 96 MiB, about 100 million pixels, because a square image at the maximum edge would be
+  268 megapixels.
+
+**Fix.** Lower `Resolution Multiplier`. If you need more detail in one region, export at a multiplier that
+fits and crop; 1x is already legible because the text scale is chosen from the graph rather than from the
+window. Raising `Text Scale` instead is the cheaper route to readability.
+
+**Diagnosing the limit on your machine.** `PNGExportUtility.MaxTextureDimension()` reports the device edge
+and `PNGExportUtility.MaxPixelBudget` the area cap.
 
 ## The text is too small in the exported PNG
 
@@ -101,10 +111,10 @@ Terrain fixture, the tallest column and the resulting fit scale for the full swe
 
 | Column Balance | Node Locality | Canvas | Tallest column | Fit scale |
 |---|---|---|---|---|
-| 0.0 | any | 3574 x 2559 | 2164 | 0.352 |
-| 0.5 | 1.0 | 3514 x 1856 | 1461 | 0.455 |
-| 0.75 | 1.0 | 3474 x 1745 | 1322 | 0.461 |
-| **1.0** | **1.0** | **3414 x 1765** | **1342** | **0.469** |
+| 0.0 | any | 3680 x 2664 | 2164 | 0.338 |
+| 0.5 | 1.0 | 3620 x 1961 | 1461 | 0.442 |
+| 0.75 | 1.0 | 3580 x 1850 | 1322 | 0.447 |
+| **1.0** | **1.0** | **3520 x 1870** | **1342** | **0.455** |
 
 The defaults sit at the best of those fifteen combinations. Lowering `Column Balance` makes the canvas
 *shorter* on width but much taller overall, because nodes fall back to the longest-path ranking and pile

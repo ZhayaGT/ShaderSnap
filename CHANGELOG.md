@@ -4,6 +4,37 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1] - 2026-10-08
+
+### Fixed
+
+- **Group titles were drawn outside the canvas content area and cut in half.** A group frame wraps its
+  members and adds a title strip above the topmost one, so the frame reaches higher than any node. The
+  layout reserved space for the nodes only, which left the frame — and its title — above the reserved
+  inset, under the window chrome. The layout now reserves the group overhang itself, via
+  `GraphAutoLayoutEngine.GroupChromeOverhang`, so a frame's rectangle stays inside the content area.
+
+  This makes the canvas roughly 35 units wider and taller on a graph with groups at the default text scale.
+  One consequence worth knowing: the 38-node Terrain graph was already at 96% of the memory budget at 4x,
+  and the slightly larger canvas takes it over, so that graph now exports at 1x and 2x. Use 2x, or turn
+  `Group Frames` off, if you need 4x on a graph that size.
+
+- Exporting a wide graph at a high multiplier failed with a raw
+  `UnityException: Failed to create texture because of invalid parameters`, with nothing to indicate what to
+  change. Only the total pixel budget was checked, so a size that fits the budget but exceeds the device's
+  maximum texture edge was attempted and rejected by the graphics API. The 99-node reference graph is 9310
+  units wide, so a 2x export asks for 18620 pixels: inside the 96 MiB budget, past the 16384px device limit.
+  The size guard now checks both, names the limit that was broken, and refuses before allocating anything.
+  `PNGExportUtility.MaxTextureDimension()` reports the device limit and `TryValidateSize` takes both limits
+  as parameters so the arithmetic is testable without a graphics device.
+
+### Added
+
+- `ExportSizeGuardTests`: seven tests over the size guard. They are pure arithmetic and run without a
+  graphics device, including the 18620-pixel case above.
+- `ReadabilityTests.GroupFramesStayInsideTheReservedInset`: asserts every group frame's rectangle stays
+  inside the inset the layout reserved, for three frame margins.
+
 ## [1.0.0] - 2026-10-08
 
 First release.

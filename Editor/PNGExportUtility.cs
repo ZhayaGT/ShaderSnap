@@ -55,11 +55,7 @@ namespace ShaderSnap.Editor
 
             int width = Mathf.CeilToInt(size.x * multiplier);
             int height = Mathf.CeilToInt(size.y * multiplier);
-            if ((long)width * height > MaxPixelBudget)
-            {
-                error = $"Resolution {width}x{height} exceeds the memory budget; lower Resolution Multiplier.";
-                return false;
-            }
+            if (!TryValidateSize(width, height, MaxTextureDimension(), MaxPixelBudget, out error)) return false;
 
             // Everything below allocates GPU memory, a hidden GameObject and a Texture2D. Any throw
             // from the panel or the encoder would otherwise leave all of it alive: the host object is
@@ -146,6 +142,52 @@ namespace ShaderSnap.Editor
                     UnityEngine.Object.DestroyImmediate(target);
                 }
             }
+        }
+
+        /// <summary>
+        /// Largest texture edge this device will accept. A RenderTexture and a Texture2D both fail with
+        /// <c>Failed to create texture because of invalid parameters</c> past this, and the failure comes
+        /// from the graphics API, so it has to be checked before anything is allocated.
+        /// </summary>
+        public static int MaxTextureDimension()
+        {
+            // There is no separate render-texture dimension limit; maxTextureSize is the edge both a
+            // RenderTexture and a Texture2D are checked against.
+            return SystemInfo.maxTextureSize;
+        }
+
+        /// <summary>
+        /// Whether an export of this size can be rendered, with a message naming the limit it breaks.
+        ///
+        /// Two separate limits, and only the second is about memory:
+        /// <list type="bullet">
+        /// <item>each edge must fit the device's maximum texture size, which is commonly 16384;</item>
+        /// <item>the total must fit <see cref="MaxPixelBudget"/>, because a square image at the maximum
+        /// edge would still be 268 megapixels.</item>
+        /// </list>
+        /// A wide graph hits the edge limit long before the pixel budget: a 99-node graph is 9205 units
+        /// wide, so 2x asks for 18410 pixels and is refused by the hardware, not by the budget. Taking the
+        /// limits as parameters keeps the arithmetic testable without a device that large.
+        /// </summary>
+        public static bool TryValidateSize(int width, int height, int maxDimension, long maxPixels, out string error)
+        {
+            if (width > maxDimension || height > maxDimension)
+            {
+                error = $"Export is {width}x{height}, which exceeds this device's {maxDimension}px maximum " +
+                        "texture size; lower Resolution Multiplier.";
+                return false;
+            }
+
+            if ((long)width * height > maxPixels)
+            {
+                // MiB, not megapixels: the constant is defined in bytes.
+                error = $"Resolution {width}x{height} exceeds the {maxPixels / (1024 * 1024)} MiB memory " +
+                        "budget; lower Resolution Multiplier.";
+                return false;
+            }
+
+            error = null;
+            return true;
         }
 
         static bool IsInsideProject(string path)

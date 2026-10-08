@@ -72,16 +72,30 @@ texture breaks every later render in the editor, not just the next export.
 Reflection failures arrive as `TargetInvocationException`; the catch unwraps it so the message names the
 real cause.
 
-## The pixel budget
+## The two size limits
+
+An export is refused before anything is allocated, and two separate limits can refuse it:
 
 ```
-MaxPixelBudget = 96 * 1024 * 1024 pixels
+MaxPixelBudget        = 96 * 1024 * 1024 bytes   (about 100.7 megapixels)
+MaxTextureDimension() = SystemInfo.maxTextureSize   (16384 on this machine)
 ```
 
-An export is refused before allocating anything if `width × height` exceeds it, with a message telling the
-user to lower the multiplier. A 38-node graph at 4x would be 12520 × 8600 ≈ 107 MP — above the cap, and
-enough GPU memory to be a problem on a modest machine. The check is a multiplication of two ints widened
-to `long`, so it cannot overflow.
+The **per-edge** limit is the one that bites first, and it is not about memory: a `RenderTexture` and a
+`Texture2D` both fail with `Failed to create texture because of invalid parameters` past the device's
+maximum texture size, and that failure comes from the graphics API rather than from Unity, so it has to be
+checked before anything is allocated.
+
+A wide graph reaches it long before the budget does. The 99-node reference graph lays out 9310 units wide,
+so a 2x export asks for 18620 pixels — comfortably inside the pixel budget and still unallocatable. Before
+this was checked, that export failed with a raw `UnityException` and no explanation of what to change.
+
+The **area** limit is the second check, because a square image at the maximum edge would be 268 megapixels.
+A 38-node graph at 4x is 13658 × 7060 ≈ 96.4 megapixels, just inside; a 12000 × 12000 request is 144
+megapixels, inside the edge limit and refused by the budget.
+
+`TryValidateSize` takes both limits as parameters, so the arithmetic is testable without a device whose
+limit is small enough to break — the tests in `ExportSizeGuardTests` run without a graphics device.
 
 ## Sizing and naming
 

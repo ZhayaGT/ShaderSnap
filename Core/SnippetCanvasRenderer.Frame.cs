@@ -64,7 +64,7 @@ namespace ShaderSnap.Core
 
             // Inside the same inset the graph and bands use, so the mark never lands on the frame border
             // or on top of the notes.
-            float pad = EffectivePadding();
+            float pad = ContentInset();
             float right = contentSize.x - pad;
             float bottom = contentSize.y - pad - layout.BandHeight;
 
