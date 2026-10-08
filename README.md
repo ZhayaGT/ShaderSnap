@@ -130,6 +130,11 @@ because the inspector still names the selected node. In an exported PNG it is no
 ShaderSnap measures the labels a graph actually contains and sizes the boxes to hold them, so titles stay
 whole. Graphs with short names keep the familiar 200 px proportions.
 
+![Node detail: full titles, category strip, port colours](Documentation~/images/node-detail.png)
+
+The strip under each title is the node's category colour, and the dots on the ports are the port's data
+type — both taken from Shader Graph's own stylesheets, so the output matches the editor.
+
 ## Running the tests
 
 The package ships an EditMode suite (85 tests). Unity only compiles a package's test assembly when the

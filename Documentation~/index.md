@@ -37,6 +37,10 @@ edited. It parses the asset, computes a layout, and draws the result itself.
 Nothing in that chain depends on the Shader Graph editor window being open, on where the author left the
 nodes, or on the current zoom. The same asset and the same preset produce the same image.
 
+An 8-node graph comes out as a single readable strip, with no configuration:
+
+![An 8-node graph exported at its defaults](images/unlit-basic.png)
+
 ## Entry points
 
 | What | Where |
