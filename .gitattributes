@@ -1,0 +1,19 @@
+# Unity serialises assets with LF; normalising avoids spurious diffs across platforms.
+* text=auto eol=lf
+
+# Unity asset and meta files are text, but must never be merged line by line.
+*.meta -text merge=unityyamlmerge eol=lf
+*.unity -text merge=unityyamlmerge eol=lf
+*.asset -text merge=unityyamlmerge eol=lf
+*.prefab -text merge=unityyamlmerge eol=lf
+*.mat -text merge=unityyamlmerge eol=lf
+*.controller -text merge=unityyamlmerge eol=lf
+*.anim -text merge=unityyamlmerge eol=lf
+*.shadergraph -text merge=unityyamlmerge eol=lf
+
+# Binary assets
+*.png binary
+*.jpg binary
+*.psd binary
+*.ttf binary
+*.dll binary

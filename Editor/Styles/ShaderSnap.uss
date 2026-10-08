@@ -1,0 +1,256 @@
+/*
+ * ShaderSnap editor theme.
+ *
+ * The palette is the tool's own world: the neutral greys come from the node surfaces it renders
+ * (#2B2B2B body, #3F3F3F title) and the accent is the Shader Graph hover blue. Keeping the panel in
+ * that family means the window and the picture it produces read as one thing.
+ *
+ * Contrast: primary text #E4E4E8 and secondary #A8A8B2 on the #2E2E33 rail both clear 4.5:1.
+ */
+
+#control-panel {
+    width: 320px;
+    min-width: 320px;
+    max-width: 320px;
+    flex-shrink: 0;
+    background-color: #2e2e33;
+    border-right-width: 1px;
+    border-right-color: rgba(0, 0, 0, 0.45);
+}
+
+/* The rail scrolls; keep its scrollbar narrow so it does not eat control width. */
+#control-panel .unity-scroller--vertical {
+    width: 9px;
+}
+
+#control-body {
+    padding-left: 12px;
+    padding-right: 12px;
+    padding-top: 12px;
+    padding-bottom: 14px;
+}
+
+/* --- Sections ------------------------------------------------------------ */
+
+#section {
+    margin-top: 18px;
+    margin-bottom: 6px;
+    padding-top: 12px;
+    border-top-width: 1px;
+    border-top-color: rgba(255, 255, 255, 0.07);
+}
+
+/* The first section opens the panel, so it carries no rule above it. */
+#control-body > #section:first-child {
+    margin-top: 0;
+    padding-top: 0;
+    border-top-width: 0;
+}
+
+#section-label {
+    font-size: 11px;
+    -unity-font-style: bold;
+    color: #e4e4e8;
+    letter-spacing: 0.4px;
+}
+
+/* --- Controls ------------------------------------------------------------ */
+
+#control-body .unity-base-field {
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+#control-body .unity-base-field__label {
+    color: #a8a8b2;
+    font-size: 11px;
+    min-width: 96px;
+    flex-shrink: 0;
+}
+
+/* --- Zoom row ------------------------------------------------------------ */
+
+#zoom-row {
+    flex-direction: row;
+    align-items: center;
+    margin-top: 2px;
+    margin-bottom: 6px;
+}
+
+#zoom-row #zoom-step {
+    width: 26px;
+    min-width: 26px;
+    height: 22px;
+    padding-left: 0;
+    padding-right: 0;
+    margin-left: 0;
+    margin-right: 0;
+    font-size: 13px;
+}
+
+#zoom-value {
+    flex-grow: 1;
+    -unity-text-align: middle-center;
+    color: #e4e4e8;
+    font-size: 11px;
+}
+
+#zoom-row #zoom-fit {
+    height: 22px;
+    margin-left: 2px;
+    margin-right: 0;
+    padding-left: 8px;
+    padding-right: 8px;
+    font-size: 11px;
+}
+
+/* --- Toolbar and actions ------------------------------------------------- */
+
+#toolbar {
+    flex-direction: row;
+    margin-top: 12px;
+}
+
+#toolbar Button {
+    flex-grow: 1;
+    flex-basis: 0;
+    height: 22px;
+    margin-left: 0;
+    margin-right: 4px;
+    padding-left: 4px;
+    padding-right: 4px;
+    font-size: 11px;
+}
+
+#toolbar Button:last-child {
+    margin-right: 0;
+}
+
+#export-button {
+    margin-top: 10px;
+    height: 30px;
+    -unity-font-style: bold;
+    background-color: #3d6fd0;
+    border-color: #2f57a4;
+    color: #ffffff;
+}
+
+#export-button:hover:enabled {
+    background-color: #4a80e2;
+}
+
+#export-button:active:enabled {
+    background-color: #345fb5;
+}
+
+#export-button:disabled {
+    background-color: rgba(61, 111, 208, 0.28);
+    border-color: rgba(47, 87, 164, 0.4);
+    color: rgba(255, 255, 255, 0.45);
+}
+
+/* --- Status -------------------------------------------------------------- */
+
+#status-label {
+    margin-top: 12px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+    padding-left: 8px;
+    padding-right: 8px;
+    border-left-width: 0;
+    border-radius: 3px;
+    background-color: rgba(0, 0, 0, 0.22);
+    color: #a8a8b2;
+    font-size: 11px;
+    white-space: normal;
+}
+
+/* --- Canvas -------------------------------------------------------------- */
+
+#canvas-container {
+    flex-grow: 1;
+    position: relative;
+}
+
+#canvas-area {
+    flex-grow: 1;
+    background-color: #1c1c20;
+}
+
+#canvas-area.panning {
+    background-color: #17171a;
+}
+
+/* The graph itself is not interactive, so a drag anywhere in the viewport pans. */
+#canvas-host {
+    flex-shrink: 0;
+}
+
+/* --- Empty state --------------------------------------------------------- */
+
+#canvas-empty {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+    bottom: 0;
+    align-items: center;
+    justify-content: center;
+    padding-left: 24px;
+    padding-right: 24px;
+}
+
+#empty-title {
+    font-size: 14px;
+    color: #e4e4e8;
+    -unity-text-align: middle-center;
+}
+
+#empty-body {
+    margin-top: 6px;
+    font-size: 11px;
+    color: #a8a8b2;
+    -unity-text-align: middle-center;
+    white-space: normal;
+}
+
+#empty-hint {
+    margin-top: 14px;
+    font-size: 11px;
+    color: #8f8f9c;
+    -unity-text-align: middle-center;
+}
+
+/* --- Scrollbars ---------------------------------------------------------- */
+
+/* Editor-default scrollbars belong to no design system; these come from the palette. */
+#canvas-area .unity-scroller,
+#control-panel .unity-scroller {
+    background-color: transparent;
+}
+
+#canvas-area .unity-scroller .unity-dragger,
+#control-panel .unity-scroller .unity-dragger {
+    background-color: rgba(255, 255, 255, 0.18);
+    border-width: 0;
+    border-radius: 3px;
+    margin-left: 2px;
+    margin-right: 2px;
+    margin-top: 2px;
+    margin-bottom: 2px;
+}
+
+#canvas-area .unity-scroller .unity-dragger:hover,
+#control-panel .unity-scroller .unity-dragger:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+}
+
+#canvas-area .unity-scroller .unity-dragger:active,
+#control-panel .unity-scroller .unity-dragger:active {
+    background-color: rgba(255, 255, 255, 0.42);
+}
+
+#canvas-area .unity-scroller .unity-scroller__slider,
+#control-panel .unity-scroller .unity-scroller__slider {
+    background-color: transparent;
+}

@@ -1,0 +1,73 @@
+# ShaderSnap — EditMode test suite.
+#
+# This workflow needs three repository secrets before it can run:
+#   UNITY_LICENSE  — contents of the Unity licence file (.ulf) for the account
+#   UNITY_EMAIL    — the Unity account email that owns that licence
+#   UNITY_PASSWORD — the Unity account password
+# The guard step below fails with an explicit error when any of them is missing, so a
+# missing licence never surfaces as a confusing activation failure inside Unity.
+#
+# The runner executes Unity headless (-nographics). Tests that need a graphics device
+# are skipped in that mode; the remaining EditMode tests still run.
+
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+  checks: write
+
+jobs:
+  editmode:
+    name: EditMode ${{ matrix.unityVersion }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        unityVersion:
+          - 6000.3.1f1
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Check Unity licence secrets
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        run: |
+          missing=""
+          [ -n "$UNITY_LICENSE" ] || missing="$missing UNITY_LICENSE"
+          [ -n "$UNITY_EMAIL" ] || missing="$missing UNITY_EMAIL"
+          [ -n "$UNITY_PASSWORD" ] || missing="$missing UNITY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Missing required repository secret(s):$missing"
+            exit 1
+          fi
+
+      - name: Run EditMode tests
+        id: tests
+        uses: game-ci/unity-test-runner@v4
+        env:
+          UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
+          UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
+          UNITY_PASSWORD: ${{ secrets.UNITY_PASSWORD }}
+        with:
+          unityVersion: ${{ matrix.unityVersion }}
+          testMode: editmode
+          artifactsPath: artifacts
+          githubToken: ${{ secrets.GITHUB_TOKEN }}
+          # This repository is a UPM package, not a Unity project, so the runner has to
+          # embed it in a generated project before the EditMode suite can run.
+          packageMode: true
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EditMode test results
+          path: ${{ steps.tests.outputs.artifactsPath }}
