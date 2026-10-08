@@ -1,14 +1,30 @@
 # ShaderSnap — EditMode test suite.
 #
-# This workflow needs three repository secrets before it can run:
-#   UNITY_LICENSE  — contents of the Unity licence file (.ulf) for the account
-#   UNITY_EMAIL    — the Unity account email that owns that licence
-#   UNITY_PASSWORD — the Unity account password
-# The guard step below fails with an explicit error when any of them is missing, so a
-# missing licence never surfaces as a confusing activation failure inside Unity.
+# The suite runs on a real Unity install, which needs a licence. Three repository
+# secrets supply it:
+#
+#   UNITY_LICENSE   contents of the Unity licence file (.ulf) for the account
+#   UNITY_EMAIL     the Unity account email that owns that licence
+#   UNITY_PASSWORD  the Unity account password
+#
+# Until those are configured the test run is skipped and the job reports success with
+# a notice naming what was skipped. That is deliberate: failing the job would put a red
+# cross on every commit for a configuration a visitor cannot fix, which reads as "this
+# project is broken" rather than "this project's CI needs a licence".
+#
+# SECURITY — read before changing the triggers.
+#
+# `pull_request` is safe here: GitHub withholds repository secrets from workflows
+# triggered by a fork, so an untrusted pull request cannot read the licence or the
+# account password.
+#
+# Do NOT change this to `pull_request_target`. That event runs with the base
+# repository's secrets AND with write access, so a fork's modified workflow file would
+# be handed the Unity account password. If a fork PR ever needs CI feedback, run the
+# suite in a separate job that checks out the base commit only, never the PR head.
 #
 # The runner executes Unity headless (-nographics). Tests that need a graphics device
-# are skipped in that mode; the remaining EditMode tests still run.
+# skip themselves in that mode; the rest of the EditMode suite still runs.
 
 name: Tests
 
@@ -34,7 +50,11 @@ jobs:
       - name: Check out
         uses: actions/checkout@v4
 
+      # Reports whether a licence is available instead of failing, so the steps that
+      # need one can be skipped cleanly. Only the secret *names* are ever printed, and
+      # GitHub masks the values even when they are set.
       - name: Check Unity licence secrets
+        id: licence
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
           UNITY_EMAIL: ${{ secrets.UNITY_EMAIL }}
@@ -45,12 +65,15 @@ jobs:
           [ -n "$UNITY_EMAIL" ] || missing="$missing UNITY_EMAIL"
           [ -n "$UNITY_PASSWORD" ] || missing="$missing UNITY_PASSWORD"
           if [ -n "$missing" ]; then
-            echo "::error::Missing required repository secret(s):$missing"
-            exit 1
+            echo "available=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Tests skipped::No Unity licence configured (missing:$missing). Add these repository secrets to run the suite."
+          else
+            echo "available=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Run EditMode tests
         id: tests
+        if: steps.licence.outputs.available == 'true'
         uses: game-ci/unity-test-runner@v4
         env:
           UNITY_LICENSE: ${{ secrets.UNITY_LICENSE }}
@@ -65,8 +88,12 @@ jobs:
           # embed it in a generated project before the EditMode suite can run.
           packageMode: true
 
+      # Gated on the artifact path rather than on `always()`. The runner only sets that
+      # output once it has actually produced results, so an unconditional upload made a
+      # skipped or failed test step report a second, misleading failure:
+      # "Input required and not supplied: path".
       - name: Upload test results
-        if: always()
+        if: always() && steps.tests.outputs.artifactsPath != ''
         uses: actions/upload-artifact@v4
         with:
           name: EditMode test results
