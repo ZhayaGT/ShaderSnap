@@ -26,8 +26,10 @@ First release.
   with drop shadow; a corner watermark with author name and logo; 1–4x supersampling.
 - Presets saved as `SnippetExportPreset` assets so a look can be reused across graphs.
 - A file watcher that refreshes the preview when the selected `.shadergraph` changes on disk.
-- An EditMode test suite covering parsing, layout, routing, styling, readability and export.
-- Package documentation under `Documentation~/`.
+- An EditMode test suite of 85 tests covering parsing, layout, routing, styling, readability and export.
+  The GPU-dependent export tests skip themselves under `-nographics`.
+- Package documentation under `Documentation~/`: architecture, layout algorithm, exporter internals,
+  package layout, design notes, and troubleshooting.
 
 ### Known limitations
 
