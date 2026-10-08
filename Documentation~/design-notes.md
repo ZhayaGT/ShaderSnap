@@ -200,6 +200,25 @@ A package can be embedded under `Assets/`, referenced from `Packages/`, or cache
 `resolvedPath` (for raw file access). This is not theoretical: the stylesheet silently stopped loading and
 all seventeen test fixture paths went stale the moment the tool moved out of `Assets/`.
 
+### The resolved package root is validated, not trusted
+
+`PackageInfo.resolvedPath` can name a directory that no longer exists. Changing `Packages/manifest.json`
+without letting Unity resolve it — which happens when the manifest is edited outside the editor — leaves the
+registry pointing at the previous layout. Switching a project from a git URL to a local `file:` dependency
+and back produced exactly this: the registry still named the `Library/PackageCache` folder from the previous
+install, so every fixture resolved into a deleted directory.
+
+The symptom was 62 tests failing with `fixture must parse`, which names neither the path nor the reason.
+
+Resolution now validates each candidate root against `package.json` before accepting it, falling back to the
+embedded folder under `Packages/` and then to loose sources under `Assets/`. `ShaderSnapPaths.Describe()`
+reports the package name, the `resolvedPath` and the chosen root, and `TestPaths` puts that in its failure
+message — so the next occurrence is diagnosable in one reading instead of a restart-and-hope cycle.
+
+Nothing is cached. The answer depends on mutable project state, and an earlier version that cached it held
+the stale path across the same switch. Resolving costs one registry lookup and one file check, and the type
+is only touched when a window opens, a test starts, or an export runs.
+
 ### Test fixtures live in `~` folders
 
 `Tests/Fixtures~/` and `Tests/Reference~/` carry the `~` suffix, which makes Unity ignore them entirely. A
