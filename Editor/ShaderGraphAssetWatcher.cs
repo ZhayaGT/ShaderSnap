@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEditor;
-using ShaderSnap.Core;
 
 namespace ShaderSnap.Editor
 {

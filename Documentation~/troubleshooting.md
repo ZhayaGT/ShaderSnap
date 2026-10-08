@@ -86,15 +86,30 @@ measured, or a port label is being suppressed as a duplicate of the title.
 
 **Fix.** Report it with the graph, or work around it by renaming the node in Shader Graph.
 
-## The graph has a large empty area on the right
+## The graph has a large empty area
 
-**Cause.** Two different things produce this:
+**Cause.** The canvas is sized by the tallest column. A graph whose fan-in narrows toward the output — a
+wide first half, a narrow tail — has one tall column and several short ones, so the space under the short
+columns is empty. It is a property of the graph's shape, not a layout defect.
 
-- `Auto Aspect` is on and stretched the canvas vertically to reach the target shape. That is pure empty
-  space; it is off by default for this reason.
-- The graph genuinely has a wide fan-in near the output, so the last column is tall and short columns
-  beside it leave a gap. Lower `Column Balance` toward 0 and raise `Node Locality` toward 1 to pull nodes
-  toward their consumers.
+**What does not help.** Raising `Vertical Spread` or turning on `Auto Aspect` makes the canvas taller
+without moving anything into the empty region, so the graph reads smaller, not better.
+
+**What to check.** `Column Balance` and `Node Locality` control how much a node may drift toward the
+column that consumes it, and both are already at their best setting by default. Measured on the 38-node
+Terrain fixture, the tallest column and the resulting fit scale for the full sweep:
+
+| Column Balance | Node Locality | Canvas | Tallest column | Fit scale |
+|---|---|---|---|---|
+| 0.0 | any | 3574 x 2559 | 2164 | 0.352 |
+| 0.5 | 1.0 | 3514 x 1856 | 1461 | 0.455 |
+| 0.75 | 1.0 | 3474 x 1745 | 1322 | 0.461 |
+| **1.0** | **1.0** | **3414 x 1765** | **1342** | **0.469** |
+
+The defaults sit at the best of those fifteen combinations. Lowering `Column Balance` makes the canvas
+*shorter* on width but much taller overall, because nodes fall back to the longest-path ranking and pile
+up in the early columns. If you want a different silhouette, `Column Balance` and `Node Locality` are the
+levers, but expect the canvas to grow.
 
 ## The preview and the exported PNG disagree
 

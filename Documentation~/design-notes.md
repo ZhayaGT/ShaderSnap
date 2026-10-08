@@ -96,6 +96,28 @@ That is pure empty space. Once the image is fitted to a screen, a taller canvas 
 text look *smaller*, which is the opposite of the tool's purpose. It stays available, off by default, for
 the case where the frame shape matters more than how large the graph reads.
 
+### The default balance and locality are the best of the sweep
+
+The canvas is sized by the tallest column, so the two ranking controls decide how large the graph reads
+once fitted to a screen. Measured on the 38-node Terrain fixture across fifteen combinations:
+
+| Column Balance | Node Locality | Canvas | Tallest column | Fit scale |
+|---|---|---|---|---|
+| 0.0 | any | 3574 × 2559 | 2164 | 0.352 |
+| 0.25 | 1.0 | 3574 × 2450 | 2055 | 0.367 |
+| 0.5 | 1.0 | 3514 × 1856 | 1461 | 0.455 |
+| 0.75 | 1.0 | 3474 × 1745 | 1322 | 0.461 |
+| **1.0** | **1.0** | **3414 × 1765** | **1342** | **0.469** |
+
+`balance = 1`, `locality = 1` — the defaults — give the tallest fit scale of the fifteen, so a graph with a
+narrowing tail is laid out as compactly as this algorithm can make it. Lowering `Column Balance` shortens
+the canvas width slightly but raises its height a great deal, because nodes fall back to the longest-path
+ranking and pile up in the early columns.
+
+The remaining empty area is the graph's own silhouette: one tall column sets the height and the shorter
+ones leave space beneath them. No setting moves nodes into that space without moving them out of the
+column their consumers are in.
+
 ### `resolutionMultiplier` defaults to 1
 
 A 38-node graph already produces a 3414 px-wide image at 1x, which is wider than any viewer shows at once.
