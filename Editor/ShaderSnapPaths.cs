@@ -14,11 +14,15 @@ namespace ShaderSnap.Editor
     /// stylesheet silently stopped loading and every test fixture path went stale once the tool moved
     /// out of <c>Assets/</c>.
     ///
-    /// The registry can also be <em>stale</em>: change <c>Packages/manifest.json</c> without letting
-    /// Unity resolve it and <see cref="UnityEditor.PackageManager.PackageInfo.resolvedPath"/> still
-    /// names the previous location, which may no longer exist. Every root is therefore validated
-    /// against a file that must be there, and an invalid one is not cached — so the next call can pick
-    /// up the corrected value instead of failing for the rest of the session.
+    /// The registry can also be stale: change <c>Packages/manifest.json</c> without letting Unity
+    /// resolve it and <see cref="UnityEditor.PackageManager.PackageInfo.resolvedPath"/> still names the
+    /// previous location, which may no longer exist. Every candidate root is therefore validated against
+    /// <c>package.json</c> before it is accepted.
+    ///
+    /// Nothing is cached. The result depends on mutable project state — the manifest, the registry, the
+    /// package cache — and a cached answer outlives a package being reinstalled from a different source.
+    /// Resolving costs a registry lookup and a file check, and this type is only touched when a window
+    /// opens, a test starts, or an export runs, so the cost is not worth a staleness bug.
     /// </summary>
     public static class ShaderSnapPaths
     {
@@ -27,38 +31,22 @@ namespace ShaderSnap.Editor
 
         const string LooseFolderName = "ShaderSnap";
 
-        static string assetRoot;
-        static string fileRoot;
-
         /// <summary>Project-relative package root, for example <c>Packages/com.zhayagt.shadersnap</c>.</summary>
         public static string AssetRoot
         {
             get
             {
-                if (assetRoot != null) return assetRoot;
                 UnityEditor.PackageManager.PackageInfo info = FindPackage();
-                assetRoot = info != null ? info.assetPath : "Assets/" + LooseFolderName;
-                return assetRoot;
+                return info != null ? info.assetPath : "Assets/" + LooseFolderName;
             }
         }
 
         /// <summary>Absolute package root on disk, for raw file access such as the test fixtures.</summary>
-        public static string FileRoot
-        {
-            get
-            {
-                if (fileRoot != null) return fileRoot;
-                string resolved = ResolveFileRoot(out ResolveSource source);
-                // Only a validated root is cached. Caching a stale one would make a transient registry
-                // problem permanent.
-                if (source != ResolveSource.Unvalidated) fileRoot = resolved;
-                return resolved;
-            }
-        }
+        public static string FileRoot => ResolveFileRoot();
 
         /// <summary>
-        /// Where <see cref="FileRoot"/> came from, and whether that root was validated. Included in
-        /// diagnostics so a failure names the path that was tried rather than just reporting a null.
+        /// What the resolution saw and chose. Included in failure messages so a missing file names the
+        /// path that was tried and why the package root was wrong, rather than just reporting a null.
         /// </summary>
         public static string Describe()
         {
@@ -89,41 +77,28 @@ namespace ShaderSnap.Editor
         /// <summary>Absolute path to the folder holding the committed visual baselines.</summary>
         public static string ReferenceFolder => File("Tests/Reference~");
 
-        enum ResolveSource { Registry, Embedded, Loose, Unvalidated }
-
-        static string ResolveFileRoot(out ResolveSource source)
+        static string ResolveFileRoot()
         {
             UnityEditor.PackageManager.PackageInfo info = FindPackage();
 
             if (info != null)
             {
-                if (IsPackageRoot(info.resolvedPath))
-                {
-                    source = ResolveSource.Registry;
-                    return info.resolvedPath;
-                }
+                // The usual case: a git, registry or file: package lives in a real folder that the
+                // registry names directly.
+                if (IsPackageRoot(info.resolvedPath)) return info.resolvedPath;
 
-                // An embedded package lives in a real folder under Packages/, which assetPath names
-                // directly. For a git or registry package assetPath is virtual and this will not exist.
+                // An embedded package lives in a real folder under Packages/, which assetPath names. For
+                // a git or registry package assetPath is virtual and this will not exist.
                 string fromAssetPath = ProjectAbsolute(info.assetPath);
-                if (IsPackageRoot(fromAssetPath))
-                {
-                    source = ResolveSource.Embedded;
-                    return fromAssetPath;
-                }
+                if (IsPackageRoot(fromAssetPath)) return fromAssetPath;
             }
 
             // Sources dropped loose under Assets/ during development.
             string loose = Path.Combine(Application.dataPath, LooseFolderName);
-            if (IsPackageRoot(loose))
-            {
-                source = ResolveSource.Loose;
-                return loose;
-            }
+            if (IsPackageRoot(loose)) return loose;
 
             // Nothing validated. Return the registry's answer so the failure surfaces as a missing file
-            // naming a real-looking path, and leave it uncached so a later call can retry.
-            source = ResolveSource.Unvalidated;
+            // naming a real-looking path.
             return info != null ? info.resolvedPath : loose;
         }
 
