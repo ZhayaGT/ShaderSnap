@@ -4,6 +4,17 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- CI no longer fails when the Unity licence secrets are absent. It reports success with a notice naming
+  what was skipped, instead of putting a red cross on every commit for a configuration a visitor cannot
+  fix. The `Upload test results` step is also gated on the artifact path being non-empty, which removes a
+  second, misleading failure (`Input required and not supplied: path`) whenever the test step did not run.
+- `CONTRIBUTING.md` documents the CI secrets, why fork pull requests cannot read them, and why
+  `pull_request_target` must not be used.
+
 ## [1.0.1] - 2026-10-08
 
 ### Fixed

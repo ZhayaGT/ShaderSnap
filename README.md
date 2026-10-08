@@ -194,6 +194,13 @@ looking at two images side by side. Regenerate it after an intentional change to
 3. Set `Resolution Multiplier` to 1 and leave every other option at its default.
 4. Export over `Tests/Reference~/TerrainSimple_1x.png`.
 
+### In CI
+
+`.github/workflows/tests.yml` runs the same suite on a real Unity install, which needs a licence supplied
+through repository secrets. Without them the job reports success and skips the suite, with a notice saying
+so — see [CONTRIBUTING.md](CONTRIBUTING.md#continuous-integration). The runner is headless, so the tests
+that need a graphics device skip themselves there; a green CI run does not cover the export path.
+
 ## Troubleshooting
 
 **The window opens unstyled.** The stylesheet failed to load. The console will carry a

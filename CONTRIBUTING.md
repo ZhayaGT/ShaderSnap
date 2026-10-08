@@ -85,6 +85,34 @@ If you add one, add it here with a note in this table, and make sure at least on
 fixture nothing reads is dead weight. Fixtures from a package are the cheapest to add: they are already
 real, and the parser test's counts can be checked against the graph in the editor.
 
+## Continuous integration
+
+`.github/workflows/tests.yml` runs the EditMode suite on a real Unity install, which needs a licence.
+Three repository secrets supply it:
+
+| Secret | Contents |
+|---|---|
+| `UNITY_LICENSE` | The `.ulf` licence file for the account |
+| `UNITY_EMAIL` | The Unity account email that owns that licence |
+| `UNITY_PASSWORD` | The Unity account password |
+
+**Without them the job succeeds and skips the suite**, leaving a notice that names what was skipped. It
+does not fail, because a red cross on every commit for a configuration a visitor cannot fix reads as "this
+project is broken" rather than "this project's CI needs a licence".
+
+**Fork pull requests cannot read the secrets.** GitHub withholds repository secrets from workflows
+triggered by a fork, so an untrusted pull request cannot reach the licence or the account password. This is
+why the workflow uses `pull_request` and not `pull_request_target`: the latter runs with the base
+repository's secrets *and* write access, which would hand the Unity account password to a fork's modified
+workflow file. Do not change it.
+
+The runner is headless, so the tests that need a graphics device skip themselves. That is expected, and it
+means a green CI run does not cover the export path — run the suite locally before a release.
+
+Because the licence is a credential, treat the CI Unity account as disposable: use an account created for
+this purpose rather than a personal one, and remember that anyone with repository admin can read the
+secrets.
+
 ## Pull requests
 
 Before opening one:
