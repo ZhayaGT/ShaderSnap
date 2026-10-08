@@ -1,4 +1,5 @@
 using System.IO;
+using NUnit.Framework;
 using UnityEngine;
 
 namespace ShaderSnap.Tests
@@ -13,12 +14,32 @@ namespace ShaderSnap.Tests
     /// </summary>
     public static class TestPaths
     {
-        public static string Unlit => ShaderSnap.Editor.ShaderSnapPaths.Fixture("UnlitBasic.shadergraph");
-        public static string Terrain => ShaderSnap.Editor.ShaderSnapPaths.Fixture("TerrainSimple.shadergraph");
-        public static string PropertyTypes => ShaderSnap.Editor.ShaderSnapPaths.Fixture("PropertyTypes.shadergraph");
+        public static string Unlit => Require(ShaderSnap.Editor.ShaderSnapPaths.Fixture("UnlitBasic.shadergraph"));
+        public static string Terrain => Require(ShaderSnap.Editor.ShaderSnapPaths.Fixture("TerrainSimple.shadergraph"));
+        public static string PropertyTypes => Require(ShaderSnap.Editor.ShaderSnapPaths.Fixture("PropertyTypes.shadergraph"));
+
+        /// <summary>
+        /// A path that deliberately does not exist, for the negative parse test. Not validated, because
+        /// not existing is the point.
+        /// </summary>
         public static string Missing => ShaderSnap.Editor.ShaderSnapPaths.Fixture("DoesNotExist.shadergraph");
 
         public static string ReferenceFolder => ShaderSnap.Editor.ShaderSnapPaths.ReferenceFolder;
+
+        /// <summary>
+        /// Fails with the path and the package resolution state when a fixture is absent.
+        ///
+        /// Without this, a fixture that cannot be found surfaces as <c>Parse</c> returning null and the
+        /// test reporting "fixture must parse", which says nothing about which path was tried or why the
+        /// package root was wrong. That costs a lot of time to diagnose for something that is almost
+        /// always a stale package registry.
+        /// </summary>
+        static string Require(string path)
+        {
+            Assert.IsTrue(File.Exists(path),
+                $"test fixture not found at '{path}'. Package resolution: {ShaderSnap.Editor.ShaderSnapPaths.Describe()}");
+            return path;
+        }
 
         /// <summary>Scratch folder for exported PNGs, under the project root's <c>Temp</c>.</summary>
         public static string Output
