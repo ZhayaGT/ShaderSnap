@@ -72,9 +72,10 @@ importing them as real shaders. They are:
 |---|---|---|---|---|
 | `UnlitBasic.shadergraph` | 8 | 4 | `com.unity.shadergraph/GraphTemplates/BuiltIn/BuiltIn Unlit Basic.shadergraph` | The small case; the minimum that still has a fan-out |
 | `PropertyTypes.shadergraph` | 8 | 7 | authored for this package | One node per property type, for the value and port-colour paths |
-| `TerrainSimple.shadergraph` | 38 | 45 | `com.unity.shadergraph/GraphTemplates/Cross Pipeline/Terrain Simple.shadergraph` | The mid-size case: groups, sticky notes, a master stack, long edges |
+| `TerrainSimple.shadergraph` | 38 | 45 | `com.unity.shadergraph/GraphTemplates/Cross Pipeline/Terrain Simple.shadergraph` | The mid-size case: a group, free sticky notes, a master stack, long edges |
+| `GroupedNotes.shadergraph` | 15 | 20 | `com.unity.shadergraph/Samples~/FeatureExamples/Blending Masks/HeightMask.shadergraph` | Four groups with four notes attached, and groups whose column ranges nest |
 
-Two of the three are Unity's own graph templates, copied **unmodified** — verify with `md5sum` against the
+Three of the four are Unity's own graphs, copied **unmodified** — verify with `md5sum` against the
 package copy. That is deliberate: a real graph exercises the parser and the layout in ways a hand-built
 fixture would not, and keeping them byte-identical means a failure can be reproduced against the upstream
 file. Do not edit them. If a test needs a variation, add a new fixture rather than modifying these.

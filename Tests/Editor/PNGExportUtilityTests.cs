@@ -468,6 +468,82 @@ namespace ShaderSnap.Tests
             return canvas.Layout;
         }
 
+        /// <summary>
+        /// The watermark logo must actually appear in the export.
+        ///
+        /// It did not. The logo was painted as a mesh allocated with <c>MeshGenerationContext.Allocate</c>,
+        /// which produced nothing at all in the offscreen panel, and the first fix attempt —
+        /// <c>Painter2D.fillTexture</c> — drew the shape without sampling the texture. Both were invisible
+        /// with a solid magenta texture *and* with the built-in <c>Texture2D.whiteTexture</c>, so nothing
+        /// short of counting pixels in the output catches it.
+        /// </summary>
+        [Test]
+        [Category("RequiresGPU")]
+        public void Export_DrawsTheWatermarkLogo()
+        {
+            RequiresGraphics.SkipIfUnavailable();
+
+            GraphModel model = ShaderGraphParser.Parse(FixturePath);
+            preset.showWatermark = true;
+            preset.authorName = "";
+            preset.resolutionMultiplier = 1;
+            preset.showMacOsFrame = false;
+            preset.showDropShadow = false;
+
+            // A colour nothing else in the export uses, so counting it is unambiguous.
+            var logo = new Texture2D(32, 32, TextureFormat.RGBA32, false);
+            var pixels = new Color32[32 * 32];
+            for (int i = 0; i < pixels.Length; i++) pixels[i] = new Color32(255, 0, 255, 255);
+            logo.SetPixels32(pixels);
+            logo.Apply();
+            preset.watermarkLogo = logo;
+
+            string path = Path.Combine(OutputDirectory, "watermark_logo.png");
+            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+
+            Texture2D decoded = Decode(path);
+            Color32[] output = decoded.GetPixels32();
+
+            int matching = 0;
+            foreach (Color32 pixel in output)
+                if (pixel.r > 200 && pixel.g < 60 && pixel.b > 200) matching++;
+
+            Object.DestroyImmediate(decoded);
+            Object.DestroyImmediate(logo);
+
+            // The logo is 48 units tall at 1x, so roughly 48x48 pixels. Allow a wide margin for the exact
+            // placement; the point is that a meaningful block of the texture is present, not none of it.
+            Assert.Greater(matching, 1000,
+                "the watermark logo must appear in the export, not just be assigned to the preset");
+        }
+
+        /// <summary>With no logo assigned the watermark must still print its text lines.</summary>
+        [Test]
+        [Category("RequiresGPU")]
+        public void Export_DrawsWatermarkTextWithoutALogo()
+        {
+            RequiresGraphics.SkipIfUnavailable();
+
+            GraphModel model = ShaderGraphParser.Parse(FixturePath);
+            preset.showWatermark = true;
+            preset.authorName = "ShaderSnap Tests";
+            preset.watermarkLogo = null;
+            preset.resolutionMultiplier = 1;
+
+            string path = Path.Combine(OutputDirectory, "watermark_text.png");
+            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+
+            Texture2D decoded = Decode(path);
+            // The bottom-right corner is where the watermark prints; it must not be flat background.
+            int lit = 0;
+            for (int y = 0; y < decoded.height / 6; y++)
+                for (int x = decoded.width - decoded.width / 3; x < decoded.width; x++)
+                    if (decoded.GetPixel(x, y).r > 0.5f) lit++;
+
+            Object.DestroyImmediate(decoded);
+            Assert.Greater(lit, 20, "the watermark text must be drawn in the bottom-right corner");
+        }
+
         static Texture2D Decode(string path)
         {
             var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);

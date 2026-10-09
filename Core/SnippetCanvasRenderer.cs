@@ -16,6 +16,9 @@ namespace ShaderSnap.Core
 
         static FontAsset cachedFont;
 
+        /// <summary>Child element carrying the watermark logo as a background image.</summary>
+        VisualElement watermarkLogo;
+
         static Dictionary<char, float> glyphAdvances;
 
         GraphModel model;
@@ -94,7 +97,7 @@ namespace ShaderSnap.Core
         }
 
         /// <summary>Layout options mirroring the preset, so the engine never sees the preset itself.</summary>
-        static LayoutOptions OptionsFor(SnippetExportPreset preset, LayoutMetrics metrics)
+        LayoutOptions OptionsFor(SnippetExportPreset preset, LayoutMetrics metrics)
         {
             if (preset == null) return LayoutOptions.Default;
             return new LayoutOptions
@@ -105,6 +108,7 @@ namespace ShaderSnap.Core
                 reserveNotesBand = preset.showNotes,
                 reserveLegendBand = preset.showPortLegend,
                 showGroupFrames = preset.showGroups,
+                watermarkBandHeight = WatermarkBandHeight(preset, metrics),
                 canvasInset = InsetFor(preset, metrics)
             };
         }
@@ -120,6 +124,38 @@ namespace ShaderSnap.Core
         {
             if (!preset.showMacOsFrame) return metrics.Padding;
             return Mathf.Max(metrics.Padding, Mathf.Clamp(preset.frameMargin, 0f, 64f) + FrameInnerGap);
+        }
+
+        /// <summary>
+        /// Height the watermark needs at the bottom of the canvas: its text lines, its logo when one is set,
+        /// and a gap above so it does not touch the graph.
+        ///
+        /// An instance method because the shader's name is one of the lines and it lives on the renderer, not
+        /// on the preset.
+        /// </summary>
+        float WatermarkBandHeight(SnippetExportPreset preset, LayoutMetrics metrics)
+        {
+            if (preset == null || !preset.showWatermark) return 0f;
+
+            // Built from the same constants the drawing uses, so the strip and the mark cannot disagree.
+            float height = WatermarkTopGap
+                         + WatermarkLines(preset, shaderDisplayName).Count * (metrics.WatermarkFontSize + WatermarkLineGap);
+            if (preset.watermarkLogo != null) height += WatermarkLogoGap + WatermarkLogoHeight;
+            return height;
+        }
+
+        /// <summary>
+        /// The watermark's text lines, top to bottom. Shared by the band measurement and the drawing so the
+        /// two can never disagree about how many lines there are.
+        /// </summary>
+        static List<string> WatermarkLines(SnippetExportPreset preset, string shaderName)
+        {
+            var lines = new List<string>(3);
+            if (preset == null) return lines;
+            if (!string.IsNullOrEmpty(shaderName)) lines.Add(shaderName);
+            if (!string.IsNullOrEmpty(preset.authorName)) lines.Add(preset.authorName);
+            lines.Add((preset.clock != null ? preset.clock() : System.DateTime.Now).ToString("yyyy-MM-dd"));
+            return lines;
         }
 
         public void Refresh()
@@ -142,6 +178,11 @@ namespace ShaderSnap.Core
                 Rebuild();
                 return;
             }
+
+            // The logo is a child element, not painted geometry, so it is not covered by the repaint below.
+            // Without this call, assigning a logo did nothing until some other change happened to trigger a
+            // Rebuild — which is why the sprite only appeared after toggling an unrelated option.
+            UpdateWatermarkLogo();
             MarkDirtyRepaint();
         }
 
@@ -154,6 +195,7 @@ namespace ShaderSnap.Core
                 && a.reserveNotesBand == b.reserveNotesBand
                 && a.reserveLegendBand == b.reserveLegendBand
                 && a.showGroupFrames == b.showGroupFrames
+                && Mathf.Approximately(a.watermarkBandHeight, b.watermarkBandHeight)
                 && Mathf.Approximately(a.canvasInset, b.canvasInset);
         }
 
@@ -255,6 +297,10 @@ namespace ShaderSnap.Core
                 style.width = 0f;
                 style.height = 0f;
             }
+
+            // The logo is a child element rather than painted geometry, so its position has to be applied
+            // here where the canvas size and the band heights are known.
+            UpdateWatermarkLogo();
             MarkDirtyRepaint();
         }
 
@@ -278,7 +324,7 @@ namespace ShaderSnap.Core
             if (preset.showPortLegend) DrawPortLegend(painter, context);
             if (preset.showNotes) DrawNotes(painter, context);
             DrawWindowFrame(painter, context);
-            DrawWatermark(context);
+            if (preset.showWatermark) DrawWatermark(context);
         }
     }
 }

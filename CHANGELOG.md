@@ -4,9 +4,75 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.0.2] - 2026-10-09
+
+### Fixed
+
+- **The watermark was drawn over the graph.** It grew upward from the graph's bottom edge, right-aligned —
+  exactly where the last column's nodes sit — so a small graph whose final column is tall had the mark
+  printed across those nodes. It now gets its own strip at the very bottom of the canvas, reserved by the
+  layout, so the graph ends above it. The port legend is lifted above the strip too, since both live in the
+  bottom-left corner.
+
+- **Assigning a watermark logo did nothing until some unrelated option was toggled.** The logo is a child
+  element rather than painted geometry, so it was positioned only from `Rebuild` — and assigning a logo
+  changes no layout option, so no rebuild followed. It is now positioned from `Refresh` as well, which is the
+  path a repaint-only change takes.
+
+- **The watermark logo never appeared.** It was painted as a mesh allocated with
+  `MeshGenerationContext.Allocate`, which rendered nothing at all in the offscreen panel; the first fix
+  attempt, `Painter2D.fillTexture`, drew the shape without sampling the texture. Both were confirmed
+  invisible with a solid magenta texture *and* with the built-in `Texture2D.whiteTexture`. The logo is now a
+  child `VisualElement` carrying the texture as a background image, which is the supported path, and a test
+  counts its pixels in the exported PNG — nothing weaker catches this, since the preset can hold a valid
+  texture while the export contains none of it.
+
+- **Hiding `Group Frames` moved the notes to the bottom of the canvas.** The annotation gutter was reserved
+  only when the frames were drawn, while anchoring was decided by whether the note's group had a frame
+  rectangle — and those rectangles are built either way. With the frames off, grouped notes were anchored
+  into a gutter that had not been reserved and landed on top of the graph: four notes over nodes on the
+  four-group fixture, the worst covering 17319 square units. The gutter is now reserved whenever there is a
+  grouped note to put in it, independent of whether the frames are drawn, and the notes stay put.
+
+- **Group frames could overlap.** A frame is the union of its members, so it spans every column they land
+  in, and stacking each column independently let groups interleave: one group's members above another's in
+  one column and below them in another, so both frames covered the same rows. Measured on the shipped
+  graphs, the 12-group reference graph had 22 overlapping frame pairs, the worst covering 3.8 million
+  square units. Each group now gets a vertical band, applied identically in every column it spans, and bands
+  whose column ranges intersect are packed into disjoint slots.
+
+  Packing order matters more than the packing itself: tallest-first took the reference canvas from 4355
+  units tall to 3590, where author order let a tall band discovered late displace everything below it.
+
+  A graph whose groups nest heavily is necessarily taller with frames on, because groups that previously
+  interleaved must now stack. `Group Frames` can be turned off to get the compact layout back.
+
+- **Two frames in adjacent columns overlapped by a few units.** The gap between columns was a fixed 56
+  units, which clears twice a frame's side padding at the default text scale and stops clearing it once the
+  padding grows with the font. The gap now accounts for the frames' clearance.
+
+- **A graph with no visible groups still reserved the note gutter**, pushing the graph right for a gutter
+  nothing would be drawn in.
 
 ### Changed
+
+- **Sticky notes that belong to a group are now drawn beside that group** instead of in a row at the bottom
+  of the canvas, where a note could not be told apart from a note about any other part of the graph. The
+  asset stores the association (`m_Group`) and the author's rect, and nine of the eleven notes across the
+  shipped graphs use it.
+
+  Such a note goes into an annotation gutter to the left of every column, vertically aligned with its
+  group's frame, with a short leader tick. The gutter is reserved before anything is placed, so a note there
+  cannot overlap the graph by construction rather than by collision testing. Notes with no group keep the
+  bottom band.
+
+  This often makes a graph shorter, because the band was sized for the tallest note while the gutter is only
+  as tall as the graph already is. The 26-node grouped fixture went from 2102x1805 to 2477x1548.
+
+- The parser now reads the authored positions the asset actually stores: group position, and note position,
+  size and owning group. Node positions are not in the file at all — they live in the editor's DrawState —
+  so group arrangement is the only authored vertical order available, and it is what the band packing uses
+  as its tiebreaker.
 
 - CI no longer fails when the Unity licence secrets are absent. It reports success with a notice naming
   what was skipped, instead of putting a red cross on every commit for a configuration a visitor cannot
@@ -14,6 +80,14 @@ All notable changes to this package are documented here. The format follows
   second, misleading failure (`Input required and not supplied: path`) whenever the test step did not run.
 - `CONTRIBUTING.md` documents the CI secrets, why fork pull requests cannot read them, and why
   `pull_request_target` must not be used.
+
+### Added
+
+- `Tests/Fixtures~/GroupedNotes.shadergraph`: a Unity sample with four groups and four attached notes, used
+  for the group and note tests.
+- `GroupLayoutTests`: no two group frames overlap (over two fixtures and across twelve text-scale and
+  vertical-spread combinations), grouped notes are anchored to their group, notes never cover a node or a
+  frame, anchored notes do not overlap each other, and a note whose group has no frame still gets drawn.
 
 ## [1.0.1] - 2026-10-08
 

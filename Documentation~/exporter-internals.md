@@ -103,6 +103,55 @@ limit is small enough to break — the tests in `ExportSizeGuardTests` run witho
 multiplier and rounds up, so the requested dimensions are exact for every multiplier. `BuildSuggestedName`
 sanitises the shader name for the filesystem and appends the size and date.
 
+## The watermark's strip
+
+The watermark is not drawn over the graph. It gets its own strip at the very bottom of the canvas, reserved by
+the layout, and the graph simply ends above it.
+
+It used to grow upward from the graph's bottom edge, right-aligned — which is exactly where the last column's
+nodes sit. A small graph whose final column is tall had the mark printed across those nodes. Reserving the
+strip first is the fix: `LayoutOptions.watermarkBandHeight` carries the height in, `GraphLayout.BandHeight`
+adds it to the other bands, and `WatermarkStripTop` is the single place the drawing and the logo position
+agree on where the strip begins.
+
+The height comes from the renderer, not the engine, because only the renderer knows how tall the logo is and
+how many text lines the preset will print. Both are built from the same constants the drawing uses, so the
+strip and the mark cannot disagree.
+
+The port legend is lifted above the strip as well, since both live in the bottom-left corner.
+
+## Drawing the watermark logo
+
+The watermark is two things drawn two different ways, because they need different machinery.
+
+The **text** — shader name, author, date — is painted through `Painter2D` like every other label.
+
+The **logo** is a child `VisualElement` carrying the texture as a `backgroundImage`. It is not painted, and
+that is not a stylistic choice: painting a texture did not work here, twice.
+
+| Attempt | Result |
+|---|---|
+| `MeshGenerationContext.Allocate(4, 6, texture)` with a hand-built quad | Nothing rendered at all |
+| `Painter2D.fillTexture` + a rect path | The shape drew, but the texture was never sampled |
+| Child `VisualElement` with `backgroundImage` | Works |
+
+Both failures were confirmed by exporting with a solid magenta texture and counting pixels in the output, and
+by repeating with the built-in `Texture2D.whiteTexture` to rule out a bad texture. Both were equally
+invisible, which is why the logo was silently absent rather than obviously broken.
+
+Children are drawn after their parent's generated content, so the logo still overlays the graph and the frame,
+which is the order a watermark wants. Its position is applied in `Rebuild`, where the canvas size and the band
+heights are known, rather than during painting.
+
+The logo is positioned from **both** `Rebuild` and `Refresh`. It is a child element rather than painted
+geometry, so a repaint alone does not cover it: positioning it only from `Rebuild` meant that assigning a logo
+did nothing until some unrelated option happened to change the layout. The logo appeared "after checking
+something else", which is exactly what that bug looks like from the outside.
+
+The regression test counts magenta pixels in the exported PNG. Nothing weaker catches this: the preset can
+hold a valid texture and the export can still contain none of it — and with the strip missing, the logo is
+drawn *under* the nodes, so only 192 of its 2304 pixels survive.
+
 ## Transparent and opaque backgrounds
 
 The panel's clear colour is set from the preset:

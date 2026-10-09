@@ -1,11 +1,13 @@
 using System.Collections.Generic;
 using UnityEngine;
 
-/// <summary>
-/// The parsed representation of a .shadergraph asset: the nodes, edges, master stacks, groups and
-/// sticky notes the renderer draws. It is deliberately kept apart from ShaderGraphParser, which is
-/// the code that reads an asset and fills this model in, so a reader of the model does not have to
-/// see the JSON shape of the asset format.
+// The parsed representation of a .shadergraph asset: the nodes, edges, master stacks, groups and
+// sticky notes the renderer draws. It is deliberately kept apart from ShaderGraphParser, which is
+// the code that reads an asset and fills this model in, so a reader of the model does not have to
+// see the JSON shape of the asset format.
+//
+// A doc comment rather than a <summary>: this sits above the namespace declaration, where a doc
+// comment would attach to the namespace rather than to any type.
 /// </summary>
 namespace ShaderSnap.Core
 {
@@ -90,11 +92,27 @@ namespace ShaderSnap.Core
         public string id;
         public string title;
         public List<GraphNode> members = new List<GraphNode>();
+
+        /// <summary>
+        /// Top-left of the frame as the author placed it, in Shader Graph's own coordinate space.
+        ///
+        /// This is the only authored position the asset stores: a node's position lives in the editor's
+        /// DrawState, not in the .shadergraph file, so it is not available here. Group positions are
+        /// enough to reproduce the author's vertical arrangement of groups, which is what stops their
+        /// frames from landing on top of each other.
+        /// </summary>
+        public Vector2 authoredPosition;
+
+        /// <summary>False when the asset stores no position for this group.</summary>
+        public bool hasAuthoredPosition;
     }
 
     /// <summary>
-    /// A sticky note authored in Shader Graph. Position in the asset is meaningless once the graph is
-    /// re-laid out, so the renderer places notes in a dedicated band rather than at their stored point.
+    /// A sticky note authored in Shader Graph.
+    ///
+    /// A note's authored rect is kept so it can be drawn beside the nodes it annotates. Notes placed at
+    /// the bottom of the canvas, away from the graph, were reported as ambiguous: the reader could not
+    /// tell which part of the graph a note was about.
     /// </summary>
     public class GraphNote
     {
@@ -107,6 +125,15 @@ namespace ShaderSnap.Core
 
         /// <summary>Stored theme index; kept so the note can carry its authored colour.</summary>
         public int theme;
+
+        /// <summary>Authored rect in Shader Graph's coordinate space; width and height included.</summary>
+        public Rect authoredPosition;
+
+        /// <summary>False when the asset stores no position for this note.</summary>
+        public bool hasAuthoredPosition;
+
+        /// <summary>Owning group id, empty when the note floats free of any group.</summary>
+        public string groupId;
     }
 
     public class GraphModel

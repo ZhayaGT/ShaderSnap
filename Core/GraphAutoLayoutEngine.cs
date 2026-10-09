@@ -204,12 +204,35 @@ namespace ShaderSnap.Core
             var gapWidth = new float[keys.Count + 1];
             gapWidth[0] = Mathf.Max(pad,
                 segmentsPerGap[0] * LayoutMetrics.WireLaneSpacing + LayoutMetrics.WireLaneMargin);
+
+            // Notes anchored to a group are drawn in a gutter to the left of every column. Widening the
+            // first gap reserves that gutter before anything is placed, so a note there can never sit on
+            // top of the graph: the columns simply start further right.
+            // The gutter is where notes go, so it is reserved whenever there is a note to put in it — not
+            // only when the group frames are drawn. The group rectangles exist either way, because
+            // BuildGroupFrames runs regardless, so a note can be aligned with its group's nodes and drawn
+            // beside the graph even with the frames switched off. Keying the gutter off the frames made the
+            // notes jump to the bottom band when the frames were hidden, which is the behaviour that was
+            // reported as strange.
+            float notesGutterWidth = options.reserveNotesBand && HasAnchoredNotes(model)
+                ? NotesGutterWidth(metrics)
+                : 0f;
+            gapWidth[0] += notesGutterWidth;
+            // A frame wraps its members and adds padding on every side, so two frames in adjacent columns
+            // need twice that padding between the columns or their edges meet. The design gap is a fixed
+            // 56 units, which clears it at the default text scale and stops doing so once the padding grows
+            // with the font — the frames then overlap by a few units along the column boundary.
+            float frameSideClearance = options.showGroupFrames
+                ? GroupFramePad(metrics) * 2f + LayoutMetrics.GridSize
+                : 0f;
+
             for (int i = 0; i + 1 < keys.Count; i++)
             {
                 int lanes = segmentsPerGap[i + 1];
-                gapWidth[i + 1] = lanes <= 0
+                float gap = lanes <= 0
                     ? metrics.HorizontalGap
                     : Mathf.Max(metrics.HorizontalGap, lanes * LayoutMetrics.WireLaneSpacing + LayoutMetrics.WireLaneMargin);
+                gapWidth[i + 1] = Mathf.Max(gap, frameSideClearance);
             }
 
             var columnX = new float[keys.Count];
@@ -223,24 +246,15 @@ namespace ShaderSnap.Core
             float canvasWidth = cursor + pad;
 
             var itemRects = new Dictionary<string, Rect>(heights.Count);
-            float bottom = pad;
-            for (int i = 0; i < keys.Count; i++)
-            {
-                float y = pad;
-                foreach (string id in layers[keys[i]])
-                {
-                    float height = heights[id];
-                    float x = columnX[i];
-                    if (snapToGrid)
-                    {
-                        x = Mathf.Round(x / LayoutMetrics.GridSize) * LayoutMetrics.GridSize;
-                        y = Mathf.Round(y / LayoutMetrics.GridSize) * LayoutMetrics.GridSize;
-                    }
-                    itemRects[id] = new Rect(x, y, metrics.NodeWidth, height);
-                    y += height + metrics.VerticalGap;
-                }
-                bottom = Mathf.Max(bottom, y - metrics.VerticalGap);
-            }
+            // Two placement strategies. Without group frames the columns are independent and stacking each
+            // one on its own is enough. With them, a frame wraps its members across several columns, and
+            // independent stacking lets two groups interleave: the frames then cover overlapping rectangles
+            // and the graph reads as a pile of boxes. The band path gives every group a fixed vertical slot
+            // that holds in all of its columns, so no two frames can cross.
+            float bottom = options.showGroupFrames && model.groups.Count > 0
+                ? PlaceByGroupOrder(model, metrics, unitOfNode, heights, columnOf, layers, keys, columnX,
+                                    extendedPredecessors, extendedSuccessors, snapToGrid, pad, itemRects)
+                : PlaceByColumn(metrics, heights, layers, keys, columnX, snapToGrid, pad, itemRects);
             float canvasHeight = bottom + pad;
 
             // Expand each unit back into per-node rects. A stack's blocks become consecutive rows
@@ -277,14 +291,29 @@ namespace ShaderSnap.Core
             BuildGroupFrames(model, metrics, result);
             if (options.highlightCriticalPath) MarkCriticalPath(model, predecessors, successors, result);
 
-            // Bands sit under the graph and are measured before the canvas is closed, so the watermark and
-            // the frame both know how much of the bottom is already spoken for.
+            // Notes need the frames to exist, because an anchored note aligns with the frame of the group
+            // it belongs to.
+            result.notesGutterWidth = notesGutterWidth;
+            float notesBottom = bottom;
             if (options.reserveNotesBand && model.notes.Count > 0)
-                result.notesBandHeight = NoteBandHeight(model, metrics);
+            {
+                // The notes may only be anchored when the gutter was actually reserved for them, which is
+                // the same condition that widened the first gap. Testing for a frame instead let a note be
+                // anchored into a gutter that was never reserved — the group rectangles are built whether or
+                // not the frames are drawn — so with group frames off the notes landed on top of the graph.
+                notesBottom = PlaceNotes(model, metrics, result, pad, bottom, notesGutterWidth > 0f);
+                result.notesBandHeight = NoteBandHeight(model, metrics, result);
+            }
             if (options.reserveLegendBand)
                 result.legendBandHeight = LegendBandHeight(model, metrics);
 
-            canvasHeight = bottom + pad + result.BandHeight;
+            // The watermark owns the bottom strip. Its height is the caller's, because only the renderer
+            // knows how tall the logo is and how many text lines the preset prints.
+            result.watermarkBandHeight = Mathf.Max(0f, options.watermarkBandHeight);
+
+            // The gutter notes sit inside the graph's own vertical range but may reach past its bottom, so
+            // the canvas has to close over whichever is lower.
+            canvasHeight = Mathf.Max(bottom, notesBottom) + pad + result.BandHeight;
 
             if (snapToGrid)
             {
@@ -311,6 +340,267 @@ namespace ShaderSnap.Core
         static float GroupFramePad(LayoutMetrics metrics) => metrics.PortRowHeight * 0.6f;
 
         static float GroupFrameTitleStrip(LayoutMetrics metrics) => metrics.PortRowHeight;
+
+        /// <summary>
+        /// Stacks each column on its own and returns the bottom of the tallest one.
+        ///
+        /// This is the placement for a graph without group frames: nothing spans columns, so each column
+        /// can be filled independently.
+        /// </summary>
+        static float PlaceByColumn(LayoutMetrics metrics, Dictionary<string, float> heights,
+                                   Dictionary<int, List<string>> layers, List<int> keys, float[] columnX,
+                                   bool snapToGrid, float pad, Dictionary<string, Rect> itemRects)
+        {
+            float bottom = pad;
+            for (int i = 0; i < keys.Count; i++)
+            {
+                float y = pad;
+                foreach (string id in layers[keys[i]])
+                {
+                    float x = columnX[i];
+                    if (snapToGrid)
+                    {
+                        x = Mathf.Round(x / LayoutMetrics.GridSize) * LayoutMetrics.GridSize;
+                        y = Mathf.Round(y / LayoutMetrics.GridSize) * LayoutMetrics.GridSize;
+                    }
+                    itemRects[id] = new Rect(x, y, metrics.NodeWidth, heights[id]);
+                    y += heights[id] + metrics.VerticalGap;
+                }
+                bottom = Mathf.Max(bottom, y - metrics.VerticalGap);
+            }
+            return bottom;
+        }
+
+        /// <summary>
+        /// Places units in vertical bands so that no two group frames can overlap.
+        ///
+        /// A frame wraps the union of its members, so it spans every column they land in. Two frames overlap
+        /// exactly when they share a column and their vertical extents intersect, and because each frame's
+        /// extent is measured over *all* of its columns, ordering the two inside one shared column is not
+        /// enough — a group whose members reach lower in some other column would still collide. What is
+        /// needed is a vertical extent per group that holds in every column it touches, which is what a band
+        /// is: a fixed slot whose height is the group's tallest single-column run.
+        ///
+        /// Bands are then packed so that any two whose column ranges intersect get disjoint slots. Ordering
+        /// the packing by descending height is what keeps the canvas short: a tall band placed first pushes
+        /// only the bands it actually conflicts with, whereas processing in author order lets a tall band
+        /// discovered late displace everything below it. The author's own arrangement is the tiebreaker, so
+        /// the result still reads in the order the graph was drawn in.
+        /// </summary>
+        static float PlaceByGroupOrder(GraphModel model, LayoutMetrics metrics,
+                                       Dictionary<string, string> unitOfNode, Dictionary<string, float> heights,
+                                       Dictionary<string, int> columnOf, Dictionary<int, List<string>> layers,
+                                       List<int> keys, float[] columnX,
+                                       Dictionary<string, List<string>> extendedPredecessors,
+                                       Dictionary<string, List<string>> extendedSuccessors,
+                                       bool snapToGrid, float pad, Dictionary<string, Rect> itemRects)
+        {
+            // Which group a unit belongs to. A stack counts as belonging to the group of its first block
+            // that has one; a unit whose nodes carry no group stays loose.
+            var groupOfUnit = new Dictionary<string, string>(heights.Count, System.StringComparer.Ordinal);
+            foreach (GraphNode node in model.nodes)
+            {
+                string unit = unitOfNode[node.id];
+                if (groupOfUnit.ContainsKey(unit)) continue;
+                if (!string.IsNullOrEmpty(node.groupId)) groupOfUnit[unit] = node.groupId;
+            }
+
+            var groupsById = new Dictionary<string, GraphGroup>(model.groups.Count, System.StringComparer.Ordinal);
+            foreach (GraphGroup group in model.groups) groupsById[group.id] = group;
+
+            var bands = new List<Band>(model.groups.Count + heights.Count);
+            var bandOfUnit = new Dictionary<string, Band>(heights.Count, System.StringComparer.Ordinal);
+            var bandOfGroup = new Dictionary<string, Band>(model.groups.Count, System.StringComparer.Ordinal);
+
+            foreach (GraphGroup group in model.groups)
+            {
+                var band = new Band
+                {
+                    groupId = group.id,
+                    authoredY = group.authoredPosition.y,
+                    topOverhang = GroupChromeOverhang(metrics),
+                    bottomPad = GroupFramePad(metrics)
+                };
+                bands.Add(band);
+                bandOfGroup[group.id] = band;
+            }
+
+            foreach (KeyValuePair<string, string> entry in groupOfUnit)
+            {
+                if (!bandOfGroup.TryGetValue(entry.Value, out Band band)) continue;
+                band.units.Add(entry.Key);
+                bandOfUnit[entry.Key] = band;
+            }
+
+            float meanGroupY = 0f;
+            foreach (GraphGroup group in model.groups) meanGroupY += group.authoredPosition.y;
+            if (model.groups.Count > 0) meanGroupY /= model.groups.Count;
+
+            foreach (int key in keys)
+            {
+                foreach (string id in layers[key])
+                {
+                    if (bandOfUnit.ContainsKey(id)) continue;
+                    var band = new Band
+                    {
+                        authoredY = InterpolateBandY(id, groupOfUnit, model, extendedPredecessors,
+                                                     extendedSuccessors, meanGroupY)
+                    };
+                    band.units.Add(id);
+                    bands.Add(band);
+                    bandOfUnit[id] = band;
+                }
+            }
+
+            // Measure each band: the columns it spans and the tallest run it needs in any one of them.
+            var runPerColumn = new Dictionary<int, float>();
+            foreach (Band band in bands)
+            {
+                band.firstColumn = int.MaxValue;
+                band.lastColumn = int.MinValue;
+                runPerColumn.Clear();
+
+                foreach (string id in band.units)
+                {
+                    int column = columnOf[id];
+                    band.firstColumn = Mathf.Min(band.firstColumn, column);
+                    band.lastColumn = Mathf.Max(band.lastColumn, column);
+                    runPerColumn.TryGetValue(column, out float run);
+                    runPerColumn[column] = run + heights[id] + metrics.VerticalGap;
+                }
+
+                if (band.units.Count == 0)
+                {
+                    band.firstColumn = 0;
+                    band.lastColumn = -1;   // spans nothing, so it can never conflict
+                    band.height = 0f;
+                    continue;
+                }
+
+                float tallest = 0f;
+                foreach (float run in runPerColumn.Values)
+                    tallest = Mathf.Max(tallest, run - metrics.VerticalGap);
+                band.height = tallest;
+            }
+
+            // Tallest first, author order as the tiebreak.
+            bands.Sort((a, b) =>
+            {
+                int compare = b.height.CompareTo(a.height);
+                if (compare != 0) return compare;
+                compare = a.authoredY.CompareTo(b.authoredY);
+                if (compare != 0) return compare;
+                string an = a.units.Count > 0 ? a.units[0] : string.Empty;
+                string bn = b.units.Count > 0 ? b.units[0] : string.Empty;
+                return string.CompareOrdinal(an, bn);
+            });
+
+            // Pack: a band starts below every already-placed band whose column range it overlaps, so that
+            // the two frames clear each other.
+            var placed = new List<Band>(bands.Count);
+            foreach (Band band in bands)
+            {
+                float offset = 0f;
+                foreach (Band other in placed)
+                {
+                    if (other.lastColumn < band.firstColumn || other.firstColumn > band.lastColumn) continue;
+                    offset = Mathf.Max(offset, other.offset + other.height + other.bottomPad
+                                               + band.topOverhang + metrics.VerticalGap);
+                }
+                band.offset = offset;
+                placed.Add(band);
+            }
+
+            float bottom = pad;
+            foreach (Band band in placed)
+                bottom = Mathf.Max(bottom, pad + band.offset + band.height + band.bottomPad);
+
+            for (int i = 0; i < keys.Count; i++)
+            {
+                int column = keys[i];
+                foreach (Band band in placed)
+                {
+                    if (column < band.firstColumn || column > band.lastColumn) continue;
+
+                    float y = pad + band.offset;
+                    // Within its band a column keeps the barycenter order the ordering pass produced.
+                    foreach (string id in layers[column])
+                    {
+                        if (bandOfUnit[id] != band) continue;
+                        float x = columnX[i];
+                        float placedY = y;
+                        if (snapToGrid)
+                        {
+                            x = Mathf.Round(x / LayoutMetrics.GridSize) * LayoutMetrics.GridSize;
+                            placedY = Mathf.Round(placedY / LayoutMetrics.GridSize) * LayoutMetrics.GridSize;
+                        }
+                        itemRects[id] = new Rect(x, placedY, metrics.NodeWidth, heights[id]);
+                        y += heights[id] + metrics.VerticalGap;
+                    }
+                }
+            }
+
+            return bottom;
+        }
+
+        /// <summary>
+        /// One vertical slot of the canvas: the corridor a group owns, or the single slot a loose unit
+        /// occupies.
+        /// </summary>
+        sealed class Band
+        {
+            public string groupId;
+
+            /// <summary>Sort key taken from the author's own arrangement; smaller is higher up.</summary>
+            public float authoredY;
+
+            public int firstColumn;
+            public int lastColumn;
+
+            /// <summary>Tallest run the band needs in any one of its columns.</summary>
+            public float height;
+
+            /// <summary>How far this band's frame reaches above its content; 0 when it has no frame.</summary>
+            public float topOverhang;
+
+            /// <summary>How far this band's frame reaches below its content; 0 when it has no frame.</summary>
+            public float bottomPad;
+
+            /// <summary>Distance from the top of the content area to the band's content.</summary>
+            public float offset;
+
+            public readonly List<string> units = new List<string>();
+        }
+
+        /// <summary>
+        /// A loose unit's ordering key: the average authored height of the groups it connects to, so a node
+        /// feeding a group is drawn beside that group rather than at the far end of the canvas.
+        /// </summary>
+        static float InterpolateBandY(string unit, Dictionary<string, string> groupOfUnit, GraphModel model,
+                                      Dictionary<string, List<string>> extendedPredecessors,
+                                      Dictionary<string, List<string>> extendedSuccessors, float fallback)
+        {
+            float sum = 0f;
+            int count = 0;
+            AccumulateNeighbourBandY(unit, extendedPredecessors, groupOfUnit, model, ref sum, ref count);
+            AccumulateNeighbourBandY(unit, extendedSuccessors, groupOfUnit, model, ref sum, ref count);
+            return count > 0 ? sum / count : fallback;
+        }
+
+        static void AccumulateNeighbourBandY(string unit, Dictionary<string, List<string>> neighbours,
+                                             Dictionary<string, string> groupOfUnit, GraphModel model,
+                                             ref float sum, ref int count)
+        {
+            if (neighbours == null || !neighbours.TryGetValue(unit, out List<string> list)) return;
+            foreach (string neighbour in list)
+            {
+                if (!groupOfUnit.TryGetValue(neighbour, out string groupId)) continue;
+                GraphGroup group = model.groups.Find(g => g.id == groupId);
+                if (group == null) continue;
+                sum += group.authoredPosition.y;
+                count++;
+            }
+        }
 
         /// <summary>Frame around every group, sized to its members plus room for the title.</summary>
         static void BuildGroupFrames(GraphModel model, LayoutMetrics metrics, GraphLayout result)
@@ -410,22 +700,121 @@ namespace ShaderSnap.Core
         }
 
         /// <summary>Height the notes band needs for one row of cards at the widest wrap.</summary>
-        static float NoteBandHeight(GraphModel model, LayoutMetrics metrics)
+        static float NoteBandHeight(GraphModel model, LayoutMetrics metrics, GraphLayout layout)
         {
-            float line = metrics.PortLabelFontSize * 1.45f;
             float tallest = 0f;
             foreach (GraphNote note in model.notes)
             {
-                int lines = CountWrappedLines(note.content, NoteTextWidth(metrics), metrics.PortLabelFontSize);
-                float height = line;                                  // title line
-                height += lines * line;
-                height += metrics.PortRowHeight;                      // card padding
-                tallest = Mathf.Max(tallest, height);
+                if (layout.gutterNotes.Contains(note.id)) continue;
+                tallest = Mathf.Max(tallest, NoteCardHeight(note, metrics, NoteTextWidth(metrics)));
             }
-            return tallest + metrics.PortRowHeight;
+            return tallest > 0f ? tallest + metrics.PortRowHeight : 0f;
+        }
+
+        /// <summary>Width of a note card. Matches what the renderer draws, so the layout reserves the truth.</summary>
+        internal static float NoteTextWidth(LayoutMetrics metrics)
+        {
+            return metrics.NodeWidth * 1.6f;
         }
 
         /// <summary>
+        /// Height of a note card once its text is wrapped to <paramref name="width"/>.
+        ///
+        /// The text column is the card less the renderer's own padding, taken from the renderer rather than
+        /// repeated here: a different inset would make the layout reserve a different height from the one
+        /// the card is drawn at, and the two would drift apart.
+        /// </summary>
+        static float NoteCardHeight(GraphNote note, LayoutMetrics metrics, float width)
+        {
+            float line = metrics.PortLabelFontSize * 1.45f;
+            float textWidth = width - SnippetCanvasRenderer.NodeTextPadding * 2f;
+            int lines = CountWrappedLines(note.content, textWidth, metrics.PortLabelFontSize);
+            return line + lines * line + metrics.PortRowHeight * 0.6f;
+        }
+
+        /// <summary>
+        /// Reserves the left-hand annotation gutter: as wide as a note card, plus a gap to the first column.
+        /// </summary>
+        /// <summary>
+        /// Whether any note will be drawn in the gutter.
+        ///
+        /// Only a note whose group produces a frame can be anchored; a graph whose notes are all free keeps
+        /// its full width, because reserving a gutter nothing would be drawn in would push the graph right
+        /// for no reason.
+        /// </summary>
+        static bool HasAnchoredNotes(GraphModel model)
+        {
+            foreach (GraphNote note in model.notes)
+            {
+                if (string.IsNullOrEmpty(note.groupId)) continue;
+                foreach (GraphGroup group in model.groups)
+                    if (group.id == note.groupId && group.members.Count > 0) return true;
+            }
+            return false;
+        }
+
+        static float NotesGutterWidth(LayoutMetrics metrics)
+        {
+            // The card, then enough clear space for a leader tick between it and the first column.
+            return NoteTextWidth(metrics) + metrics.PortRowHeight * 3f;
+        }
+
+        /// <summary>
+        /// Places the notes that belong to a group, and returns the lowest point any of them reaches.
+        ///
+        /// Such a note goes into the gutter, aligned with its group's frame. That is the answer to "which
+        /// part of the graph is this note about": it sits level with the thing it describes and carries a
+        /// leader line across to it.
+        ///
+        /// A note with no group of its own has nothing to align to and keeps the band under the graph, whose
+        /// height <see cref="NoteBandHeight"/> reserves. <paramref name="anchorToGroups"/> carries that
+        /// decision in from the caller, which is the only place that knows whether the gutter was reserved.
+        ///
+        /// Only gutter notes are recorded in <see cref="GraphLayout.noteRects"/>; the band notes are the
+        /// renderer's, which already knows how to wrap them across the canvas width.
+        /// </summary>
+        static float PlaceNotes(GraphModel model, LayoutMetrics metrics, GraphLayout layout, float pad,
+                                float graphBottom, bool anchorToGroups)
+        {
+            float cardWidth = NoteTextWidth(metrics);
+            float gap = metrics.PortRowHeight;
+            float lowest = graphBottom;
+
+            var anchored = new List<GraphNote>();
+            if (anchorToGroups)
+            {
+                foreach (GraphNote note in model.notes)
+                {
+                    if (string.IsNullOrEmpty(note.groupId)) continue;
+                    if (!layout.groupRects.ContainsKey(note.groupId)) continue;
+                    anchored.Add(note);
+                }
+            }
+
+            // In the order of the frames they point at, so the gutter reads top to bottom like the graph.
+            anchored.Sort((a, b) =>
+            {
+                int compare = layout.groupRects[a.groupId].y.CompareTo(layout.groupRects[b.groupId].y);
+                return compare != 0 ? compare : string.CompareOrdinal(a.id, b.id);
+            });
+
+            float y = pad;
+            foreach (GraphNote note in anchored)
+            {
+                float height = NoteCardHeight(note, metrics, cardWidth);
+                // Align with the group's frame, but never climb back over an earlier note: two groups can
+                // share rows, and their notes must not land on top of each other.
+                y = Mathf.Max(y, layout.groupRects[note.groupId].y);
+                var rect = new Rect(pad, y, cardWidth, height);
+                layout.noteRects[note.id] = rect;
+                layout.gutterNotes.Add(note.id);
+                y += height + gap;
+                lowest = Mathf.Max(lowest, rect.yMax);
+            }
+
+            return lowest;
+        }
+
         /// Legend height for the port types this graph actually uses. Counting entries here is what keeps
         /// the box and the band in agreement; sizing it for a fixed number of rows let the box grow past
         /// the space reserved for it and collide with the notes.
@@ -473,11 +862,6 @@ namespace ShaderSnap.Core
                 lines += Mathf.Max(1, Mathf.CeilToInt(paragraph.Length / (float)perLine));
             }
             return lines;
-        }
-
-        static float NoteTextWidth(LayoutMetrics metrics)
-        {
-            return metrics.NodeWidth * 1.6f;
         }
 
         /// <summary>

@@ -64,25 +64,5 @@ namespace ShaderSnap.Core
             painter.Fill(FillRule.NonZero);
         }
 
-        static void DrawTexture(MeshGenerationContext context, Rect rect, Texture2D texture, Color tint)
-        {
-            if (texture == null) return;
-            var vertices = new Vertex[4];
-            var indices = new ushort[] { 0, 1, 2, 2, 3, 0 };
-
-            vertices[0].position = new Vector3(rect.xMin, rect.yMin, Vertex.nearZ);
-            vertices[1].position = new Vector3(rect.xMin, rect.yMax, Vertex.nearZ);
-            vertices[2].position = new Vector3(rect.xMax, rect.yMax, Vertex.nearZ);
-            vertices[3].position = new Vector3(rect.xMax, rect.yMin, Vertex.nearZ);
-            vertices[0].uv = new Vector2(0f, 0f);
-            vertices[1].uv = new Vector2(0f, 1f);
-            vertices[2].uv = new Vector2(1f, 1f);
-            vertices[3].uv = new Vector2(1f, 0f);
-            for (int i = 0; i < 4; i++) vertices[i].tint = tint;
-
-            MeshWriteData mesh = context.Allocate(4, 6, texture);
-            mesh.SetAllVertices(vertices);
-            mesh.SetAllIndices(indices);
-        }
     }
 }

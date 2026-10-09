@@ -1,6 +1,6 @@
 {
   "name": "com.zhayagt.shadersnap",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "displayName": "ShaderSnap",
   "description": "Export a Unity Shader Graph as a clean, readable PNG. ShaderSnap re-lays out the graph deterministically instead of screenshotting the editor, so the output has consistent spacing, node-avoiding wire routing, Shader Graph node styling, and export up to 4x without bitmap scaling.",
   "unity": "6000.3",

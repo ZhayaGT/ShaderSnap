@@ -140,7 +140,14 @@ namespace ShaderSnap.Tests
             Assert.Greater(with.notesBandHeight, 0f, "the notes band must reserve height");
             Assert.AreEqual(without.size.y + with.notesBandHeight, with.size.y, 0.5f,
                 "the canvas must grow by exactly the band height");
-            Assert.AreEqual(without.size.x, with.size.x, 0.01f, "the band must not change the width");
+
+            // The Terrain fixture's notes belong to no group, so nothing is anchored and the graph keeps its
+            // width. A gutter reserved for notes that would not be drawn in it would push the graph right for
+            // nothing, which is the regression this pins.
+            Assert.AreEqual(0f, with.notesGutterWidth, 0.01f,
+                "a graph with no grouped notes must not reserve the annotation gutter");
+            Assert.AreEqual(without.size.x, with.size.x, 0.01f,
+                "with no anchored note the canvas must not change width");
         }
 
         [Test]

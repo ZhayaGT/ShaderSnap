@@ -120,9 +120,10 @@ namespace ShaderSnap.Core
             float boxWidth = LegendBoxWidth();
             float boxHeight = metrics.PortRowHeight * 0.6f * 2f + entries.Count * rowHeight;
 
-            // Anchored to the bottom of the content area, which ContentInset keeps clear of the frame.
+            // Anchored to the bottom of the content area, which ContentInset keeps clear of the frame, and
+            // lifted above the watermark's strip so the two never share the bottom corner.
             float pad = ContentInset();
-            var box = new Rect(pad, contentSize.y - pad - boxHeight, boxWidth, boxHeight);
+            var box = new Rect(pad, contentSize.y - pad - layout.watermarkBandHeight - boxHeight, boxWidth, boxHeight);
 
             painter.fillColor = SnippetStyle.PanelFill;
             RoundedRectPath(painter, box.x, box.y, box.width, box.height, 5f);
@@ -191,9 +192,15 @@ namespace ShaderSnap.Core
         }
 
         /// <summary>
-        /// Sticky notes printed as cards in the band under the graph. The asset stores an absolute
-        /// position for each note, but that point means nothing once the graph has been re-laid out, so
-        /// the notes become a reading block instead of floating annotations.
+        /// Draws the sticky notes.
+        ///
+        /// A note that belongs to a group is placed by the layout in the gutter to the left of every column,
+        /// level with its group's frame, and gets a leader line across to that frame. That is what makes the
+        /// note's subject unambiguous: in a row at the bottom of the canvas, a note about the middle of the
+        /// graph was indistinguishable from a note about any other part of it.
+        ///
+        /// Notes with no group have nothing to align to, so they keep the band under the graph, wrapping
+        /// across the canvas width.
         /// </summary>
         void DrawNotes(Painter2D painter, MeshGenerationContext context)
         {
@@ -224,17 +231,20 @@ namespace ShaderSnap.Core
 
             foreach (GraphNote note in model.notes)
             {
-                if (x > metrics.Padding && x + cardWidth > metrics.Padding + available)
+                bool inGutter = layout.noteRects.TryGetValue(note.id, out Rect card);
+                if (!inGutter)
                 {
-                    x = metrics.Padding;
-                    y += rowHeight + gap;
-                    rowHeight = 0f;
+                    if (x > metrics.Padding && x + cardWidth > metrics.Padding + available)
+                    {
+                        x = metrics.Padding;
+                        y += rowHeight + gap;
+                        rowHeight = 0f;
+                    }
+                    card = new Rect(x, y, cardWidth, NoteCardHeight(note, cardWidth, line, size));
                 }
 
-                int bodyLines = GraphAutoLayoutEngine.CountWrappedLines(note.content, cardWidth - NodeTextPadding * 2f, size);
-                float cardHeight = line + bodyLines * line + metrics.PortRowHeight * 0.6f;
+                if (inGutter) DrawNoteLeader(painter, note, card);
 
-                var card = new Rect(x, y, cardWidth, cardHeight);
                 painter.fillColor = SnippetStyle.NoteBackground;
                 RoundedRectPath(painter, card.x, card.y, card.width, card.height, 4f);
                 painter.Fill(FillRule.NonZero);
@@ -252,9 +262,51 @@ namespace ShaderSnap.Core
 
                 DrawWrappedText(context, note.content, textX, cursorY, textWidth, size, line, SnippetStyle.NoteBody);
 
-                x += cardWidth + gap;
-                rowHeight = Mathf.Max(rowHeight, cardHeight);
+                if (!inGutter)
+                {
+                    x += cardWidth + gap;
+                    rowHeight = Mathf.Max(rowHeight, card.height);
+                }
             }
+        }
+
+        /// <summary>Card height for a note, measured the same way the layout reserves it.</summary>
+        float NoteCardHeight(GraphNote note, float cardWidth, float line, float size)
+        {
+            int bodyLines = GraphAutoLayoutEngine.CountWrappedLines(note.content,
+                cardWidth - NodeTextPadding * 2f, size);
+            return line + bodyLines * line + metrics.PortRowHeight * 0.6f;
+        }
+
+        /// <summary>
+        /// A short tick from a gutter note to the edge of the graph.
+        ///
+        /// The first version ran the line all the way to the group's frame, which on a wide graph meant a
+        /// hairline crossing every column between the gutter and that frame — over the very nodes the note
+        /// was describing. The tick stops where the graph begins instead. The association is carried by the
+        /// note's vertical alignment with its group's frame, which the layout guarantees; the tick marks the
+        /// note as an annotation rather than a label that happens to float beside the graph.
+        /// </summary>
+        void DrawNoteLeader(Painter2D painter, GraphNote note, Rect card)
+        {
+            if (string.IsNullOrEmpty(note.groupId)) return;
+            if (!layout.groupRects.TryGetValue(note.groupId, out Rect frame)) return;
+            if (layout.columns.Count == 0) return;
+
+            // Stop short of the leftmost column, so the tick stays in the clear band the layout reserved.
+            float railX = layout.columns[0].x - GraphAutoLayoutEngine.GroupChromeOverhang(metrics);
+            if (railX <= card.xMax + 1f) return;
+
+            float y = Mathf.Clamp(card.center.y, frame.yMin, frame.yMax);
+
+            painter.strokeColor = SnippetStyle.NoteLeader;
+            painter.lineWidth = 1f;
+            painter.BeginPath();
+            painter.MoveTo(new Vector2(card.xMax, y));
+            painter.LineTo(new Vector2(railX, y));
+            painter.Stroke();
+
+            FillCircle(painter, new Vector2(railX, y), 2f, SnippetStyle.NoteLeader);
         }
 
         /// <summary>Word wrap that measures with the real glyph advances, so it never overflows a card.</summary>

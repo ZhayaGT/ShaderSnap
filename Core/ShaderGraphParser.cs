@@ -360,7 +360,13 @@ namespace ShaderSnap.Core
                 string title = ReadString(doc, "m_Title");
                 if (string.IsNullOrEmpty(title)) title = "Group";
 
-                model.groups.Add(new GraphGroup { id = groupId, title = title });
+                var group = new GraphGroup { id = groupId, title = title };
+                if (TryReadPoint(doc["m_Position"], out Vector2 groupPosition))
+                {
+                    group.authoredPosition = groupPosition;
+                    group.hasAuthoredPosition = true;
+                }
+                model.groups.Add(group);
             }
 
             if (model.groups.Count == 0) return;
@@ -397,14 +403,21 @@ namespace ShaderSnap.Core
                 string title = ReadString(doc, "m_Title");
                 if (string.IsNullOrEmpty(content) && string.IsNullOrEmpty(title)) continue;
 
-                model.notes.Add(new GraphNote
+                var note = new GraphNote
                 {
                     id = noteId,
                     title = title,
                     content = content,
                     textSize = ReadInt(doc, "m_TextSize", 0),
-                    theme = ReadInt(doc, "m_Theme", 0)
-                });
+                    theme = ReadInt(doc, "m_Theme", 0),
+                    groupId = ReadString(doc["m_Group"], "m_Id")
+                };
+                if (TryReadRect(doc["m_Position"], out Rect noteRect))
+                {
+                    note.authoredPosition = noteRect;
+                    note.hasAuthoredPosition = true;
+                }
+                model.notes.Add(note);
             }
         }
 
@@ -606,6 +619,31 @@ namespace ShaderSnap.Core
             JToken value = token?[key];
             if (value == null) return fallback;
             return value.Type == JTokenType.Integer ? value.Value<int>() : fallback;
+        }
+
+        /// <summary>
+        /// Reads a <c>{ x, y }</c> point. Shader Graph writes positions in its own graph space, which is
+        /// y-down, so the values are used as authored without a flip.
+        /// </summary>
+        static bool TryReadPoint(JToken token, out Vector2 point)
+        {
+            point = default;
+            if (!(token is JObject obj)) return false;
+            if (!TryReadFloat(obj["x"], out float x) || !TryReadFloat(obj["y"], out float y)) return false;
+            point = new Vector2(x, y);
+            return true;
+        }
+
+        /// <summary>Reads the <c>{ x, y, width, height }</c> rect a sticky note stores.</summary>
+        static bool TryReadRect(JToken token, out Rect rect)
+        {
+            rect = default;
+            if (!(token is JObject obj)) return false;
+            if (!TryReadPoint(token, out Vector2 origin)) return false;
+            if (!TryReadFloat(obj["width"], out float width) || !TryReadFloat(obj["height"], out float height))
+                return false;
+            rect = new Rect(origin.x, origin.y, width, height);
+            return true;
         }
 
         static bool ReadBool(JToken token, string key)

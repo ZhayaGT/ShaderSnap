@@ -7,7 +7,24 @@ graph out deterministically, and draws it from scratch. The result is a diagram 
 that route around the nodes they cross, Shader Graph's own node styling, and text that stays legible
 because the tool chooses the canvas size rather than inheriting whatever the editor window happened to be.
 
-![A 38-node Terrain shader laid out by ShaderSnap](Documentation~/images/terrain-graph.png)
+![The Fancy Loading graph exported by ShaderSnap](Documentation~/images/fancy-loading.png)
+
+## What you get
+
+That is a complete graph, exported at its defaults. Every property node shows the value it actually holds —
+`0.8`, `18`, and the colour as a swatch beside its hex code — so the image documents the shader's setup, not
+just its wiring. Nodes that carry no data type are drawn without a type badge, and the `Fragment` stack lists
+its blocks the way Shader Graph draws them.
+
+The cables route around the nodes instead of through them, each one coloured by the data type it carries, so
+a reader can follow a connection across the image without tracing it pixel by pixel. That is the property
+that makes the output usable the way a code snippet is: something you paste into a README, a wiki page or a
+portfolio, and it reads on its own.
+
+It scales. The same tool lays out a 38-node terrain shader the same way, with the long cables threaded
+through reserved rows rather than over the nodes:
+
+![The Terrain Simple template, 38 nodes](Documentation~/images/terrain-graph.png)
 
 ## Why not just screenshot
 
@@ -99,7 +116,7 @@ screen shows at once. It is there because two of these graphs cannot go as high 
 maximum texture size. It is the graph that exposed that limit, and the one to open when you want to see how
 the layout handles long edges and a dense middle. `Terrain Simple` stops at 3x for the same reason.
 
-The `Terrain Simple` template is the graph in the screenshot at the top of this page.
+The `Terrain Simple` template is the graph in the second screenshot above.
 
 ### Options
 
@@ -116,14 +133,14 @@ The `Terrain Simple` template is the graph in the screenshot at the top of this 
 | | Vertical Spread | Stretches the gaps inside a column without widening the canvas |
 | | Auto Aspect / Target Aspect | Solves the vertical spread to reach a canvas shape |
 | | Show Node Values | Draws each node's stored value under its title |
-| Readability | Group Frames | A titled frame around each group authored in Shader Graph |
-| | Sticky Notes | The authored notes, in a band under the graph |
+| Readability | Group Frames | A titled frame around each group authored in Shader Graph. Groups are kept from overlapping, which makes the canvas taller on a graph whose groups nest — turn this off for the most compact layout |
+| | Sticky Notes | The authored notes. A note attached to a group is drawn beside that group, whether or not the frames are shown; one with no group goes in a band under the graph |
 | | Highlight Critical Path | Emphasises the longest dependency chain |
 | | Column Guides | Faint separators and index numbers between columns |
 | | Port Legend | A legend of the port colours the graph actually uses |
 | Background | Mode | Solid, gradient, transparent, or a blurred-editor backdrop |
 | Frame & Watermark | Frame, shadow, corner radius, margin | The macOS-style window frame |
-| | Watermark, Author, Logo | Attribution drawn into the corner |
+| | Watermark, Author, Logo | Attribution drawn in its own strip at the bottom of the canvas, so it never covers the graph |
 | Export | Resolution Multiplier | 1–4x supersampling |
 | | Node Warning Threshold | Warns before exporting a graph larger than this |
 
@@ -147,6 +164,23 @@ The canvas grows along with the text — partly in height, and partly in width, 
 wider node boxes to avoid clipping titles. That is why the on-screen gain flattens: from 1.5 to 3.0 the
 text doubles but the fitted view only improves from 10.2 px to 11.7 px. The default sits at 1.5, where the
 curve is still steep.
+
+### The watermark keeps to itself
+
+The watermark — shader name, author, date and an optional logo — is drawn in a strip reserved at the very
+bottom of the canvas. The graph ends above it, so the mark can never be printed across a node, however tall
+the last column happens to be.
+
+### Notes follow the graph
+
+A sticky note in Shader Graph is usually attached to a group, and the asset records that. ShaderSnap draws
+such a note in a gutter beside the graph, level with the group it belongs to, so the note's subject is
+obvious. A note with no group has nothing to align to and goes in a band under the graph.
+
+The gutter is reserved for the note itself, not for the group frame, so turning `Group Frames` off leaves
+the notes exactly where they were.
+
+![A four-group graph: each note sits beside the group it describes](Documentation~/images/grouped-notes.png)
 
 ### Node width is measured, not fixed
 

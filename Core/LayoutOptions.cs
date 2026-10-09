@@ -34,6 +34,16 @@ namespace ShaderSnap.Core
         public bool showGroupFrames;
 
         /// <summary>
+        /// Height to reserve at the very bottom of the canvas for the watermark. The caller computes it
+        /// because only it knows how tall the logo is and how many text lines the preset will print; the
+        /// engine just reserves the space.
+        ///
+        /// Without it the watermark was drawn inside the graph's own area, growing upward from the bottom
+        /// edge at the right — which is exactly where the last column's nodes are, so it landed on them.
+        /// </summary>
+        public float watermarkBandHeight;
+
+        /// <summary>
         /// Minimum distance the graph and the bands keep from the canvas edge. The renderer raises this
         /// when a macOS frame is drawn, so the frame border can never cross the content and the bands
         /// always sit inside the frame rather than poking through its bottom edge.

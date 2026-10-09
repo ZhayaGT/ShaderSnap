@@ -18,6 +18,9 @@ namespace ShaderSnap.Tests
         public static string Terrain => Require(ShaderSnap.Editor.ShaderSnapPaths.Fixture("TerrainSimple.shadergraph"));
         public static string PropertyTypes => Require(ShaderSnap.Editor.ShaderSnapPaths.Fixture("PropertyTypes.shadergraph"));
 
+        /// <summary>Four authored groups with four notes attached to them.</summary>
+        public static string GroupedNotes => Require(ShaderSnap.Editor.ShaderSnapPaths.Fixture("GroupedNotes.shadergraph"));
+
         /// <summary>
         /// A path that deliberately does not exist, for the negative parse test. Not validated, because
         /// not existing is the point.

@@ -58,6 +58,58 @@ The cost is a slightly larger canvas on graphs with groups. On the 38-node Terra
 difference between 4x fitting and not fitting the memory budget, which is why `Group Frames` is worth
 turning off when the graph is only wanted at maximum resolution.
 
+### Group frames are kept apart by giving each group a band
+
+Stacking each column on its own is correct only while nothing spans a column. A group frame does: it is the
+union of its members, so it covers every column they land in. Two groups can therefore interleave — group A's
+members above group B's in one column and below them in another — and both frames then cover the same rows.
+
+Measured on the shipped graphs, that was not a corner case. The 12-group reference graph had **22 overlapping
+frame pairs**, the worst covering 3.8 million square units; the 4-group fixture had 5.
+
+The fix is a vertical band per group: a slot whose height is the group's tallest single-column run, applied
+identically in every column it spans. Bands are packed so that any two whose column ranges intersect get
+disjoint slots.
+
+**The packing order matters more than the packing.** Processing bands in author order lets a tall band
+discovered late displace everything below it. Processing them tallest-first means a tall band pushes only the
+bands it actually conflicts with. On the reference graph that single change took the canvas from 4355 units
+tall to 3590.
+
+Two smaller bugs surfaced while building it, both caught by the tests rather than by looking:
+
+- Two frames in *adjacent* columns overlapped by a few units. The gap between columns was a fixed 56 units,
+  which clears twice the frame's side padding at the default text scale and stops clearing it once the
+  padding grows with the font. The gap now takes the frames' clearance into account.
+- A graph whose groups were all hidden still reserved the note gutter, because the gutter was reserved before
+  the layout knew whether any frame would be built.
+
+**The cost is real and worth stating.** Where four groups share one column they must stack, so a heavily
+nested graph gets taller — the reference graph goes from 1956 units to 3367. That is the price of frames that
+do not lie on top of each other. Turning `Group Frames` off restores the compact layout.
+
+### Notes belong beside what they describe
+
+A sticky note in a row at the bottom of the canvas cannot say which part of the graph it is about. On the
+graph that prompted this, four notes sat in that row while the nodes they described were spread across three
+groups in the middle of a wide canvas.
+
+The asset knows the answer: every note carries an `m_Group` reference and an authored rect. Nine of the
+eleven notes across the shipped graphs are attached to a group.
+
+Anchored notes therefore move into a gutter to the left of every column, aligned with the frame of their
+group, with a short leader tick. The gutter is reserved before anything is placed, so a note there cannot
+overlap the graph by construction rather than by collision testing.
+
+The first attempt drew the leader all the way to the group's frame. On a wide graph that meant a hairline
+crossing every column between the gutter and the frame — over the very nodes the note described. The tick now
+stops where the graph begins; the association is carried by the vertical alignment, which the layout
+guarantees.
+
+**It is not always a cost.** Moving notes out of the bottom band made several graphs shorter overall, because
+the band was sized for the tallest note while the gutter is only as tall as the graph already is. The grouped
+fixture went from 2102×1805 to 2477×1548.
+
 ### Long edges get reserved rows, not avoidance
 
 A wire that spans several columns has to cross the columns in between. The naive fix is to detect

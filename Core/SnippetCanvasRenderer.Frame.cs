@@ -58,38 +58,111 @@ namespace ShaderSnap.Core
             }
         }
 
+        /// <summary>
+        /// Height of the watermark logo block, and the gap it leaves above the text lines.
+        /// </summary>
+        const float WatermarkLogoHeight = 48f;
+        const float WatermarkLogoGap = 8f;
+
+        /// <summary>Clear space above the first watermark line, inside its reserved strip.</summary>
+        const float WatermarkTopGap = 8f;
+
+        /// <summary>Leading added to each watermark line's font size.</summary>
+        const float WatermarkLineGap = 2f;
+
+        /// <summary>
+        /// Draws the watermark text into the strip the layout reserved for it at the bottom of the canvas,
+        /// right-aligned: the shader's name, the author and the date, stacked.
+        ///
+        /// The strip is the point. The watermark used to grow upward from the graph's bottom edge, at the
+        /// right, which is exactly where the last column's nodes sit — so it was drawn over them. Reserving
+        /// the space first means the graph simply ends above it.
+        ///
+        /// The logo is not drawn here. It is a child <see cref="VisualElement"/> carrying the texture as a
+        /// background image; see <see cref="UpdateWatermarkLogo"/> for why.
+        /// </summary>
         void DrawWatermark(MeshGenerationContext context)
         {
-            if (!preset.showWatermark) return;
+            var lines = WatermarkLines(preset, shaderDisplayName);
+            if (lines.Count == 0) return;
 
-            // Inside the same inset the graph and bands use, so the mark never lands on the frame border
-            // or on top of the notes.
             float pad = ContentInset();
             float right = contentSize.x - pad;
-            float bottom = contentSize.y - pad - layout.BandHeight;
+            float y = WatermarkStripTop() + WatermarkTopGap;
 
-            if (preset.watermarkLogo != null)
+            foreach (string line in lines)
             {
-                float height = 48f;
-                float width = height * ((float)preset.watermarkLogo.width / Mathf.Max(1, preset.watermarkLogo.height));
-                DrawTexture(context, new Rect(right - width, bottom - height, width, height),
-                    preset.watermarkLogo, Color.white);
-                bottom -= height + 8f;
-            }
-
-            var lines = new List<string>(3);
-            if (!string.IsNullOrEmpty(shaderDisplayName)) lines.Add(shaderDisplayName);
-            if (!string.IsNullOrEmpty(preset.authorName)) lines.Add(preset.authorName);
-            lines.Add((preset.clock != null ? preset.clock() : System.DateTime.Now).ToString("yyyy-MM-dd"));
-
-            for (int i = lines.Count - 1; i >= 0; i--)
-            {
-                float width = MeasureText(lines[i], metrics.WatermarkFontSize);
-                DrawLabel(context, lines[i],
-                    new Vector2(right - width, bottom - metrics.WatermarkFontSize),
+                float width = MeasureText(line, metrics.WatermarkFontSize);
+                DrawLabel(context, line, new Vector2(right - width, y),
                     metrics.WatermarkFontSize, new Color(0.88f, 0.88f, 0.92f));
-                bottom -= metrics.WatermarkFontSize + 4f;
+                y += metrics.WatermarkFontSize + WatermarkLineGap;
             }
+        }
+
+        /// <summary>Top of the strip the layout reserved for the watermark, in canvas units.</summary>
+        float WatermarkStripTop()
+        {
+            return contentSize.y - ContentInset() - layout.watermarkBandHeight;
+        }
+
+        /// <summary>Where the logo goes: below the text lines, inside the reserved strip.</summary>
+        Vector2 WatermarkLogoTopLeft()
+        {
+            float pad = ContentInset();
+            float right = contentSize.x - pad;
+            float height = WatermarkLogoHeight;
+            float width = height * ((float)preset.watermarkLogo.width / Mathf.Max(1, preset.watermarkLogo.height));
+
+            float textHeight = WatermarkLines(preset, shaderDisplayName).Count
+                * (metrics.WatermarkFontSize + WatermarkLineGap);
+            float top = WatermarkStripTop() + WatermarkTopGap + textHeight + WatermarkLogoGap;
+
+            return new Vector2(right - width, top);
+        }
+
+        bool HasWatermarkLogo => preset.showWatermark && preset.watermarkLogo != null;
+
+        /// <summary>
+        /// Positions the watermark logo, which is a child element rather than something painted.
+        ///
+        /// Painting a texture did not work here. <c>MeshGenerationContext.Allocate</c> with a texture produced
+        /// nothing at all, and <c>Painter2D.fillTexture</c> drew the shape without sampling the texture — both
+        /// verified by exporting with a solid magenta texture and counting pixels, and by swapping in the
+        /// built-in <c>Texture2D.whiteTexture</c>, which was equally invisible. A background image on a child
+        /// element is the supported way to show a texture in UI Toolkit, and it needs no mesh plumbing.
+        ///
+        /// Children are drawn after their parent's generated content, so the logo still sits on top of the
+        /// graph and the frame, which is the order a watermark wants.
+        ///
+        /// Called from both <see cref="Rebuild"/> and <see cref="Refresh"/>: it is a child-element update
+        /// rather than painted geometry, so a repaint alone does not cover it. Omitting the Refresh call is
+        /// what made an assigned logo appear only after some unrelated option was toggled.
+        /// </summary>
+        void UpdateWatermarkLogo()
+        {
+            if (!HasWatermarkLogo)
+            {
+                if (watermarkLogo != null) watermarkLogo.style.display = DisplayStyle.None;
+                return;
+            }
+
+            if (watermarkLogo == null)
+            {
+                watermarkLogo = new VisualElement { name = "watermark-logo", pickingMode = PickingMode.Ignore };
+                watermarkLogo.style.position = Position.Absolute;
+                Add(watermarkLogo);
+            }
+
+            Texture2D logo = preset.watermarkLogo;
+            Vector2 topLeft = WatermarkLogoTopLeft();
+
+            watermarkLogo.style.display = DisplayStyle.Flex;
+            watermarkLogo.style.backgroundImage = new StyleBackground(logo);
+            watermarkLogo.style.width = WatermarkLogoHeight
+                * ((float)logo.width / Mathf.Max(1, logo.height));
+            watermarkLogo.style.height = WatermarkLogoHeight;
+            watermarkLogo.style.left = topLeft.x;
+            watermarkLogo.style.top = topLeft.y;
         }
     }
 }

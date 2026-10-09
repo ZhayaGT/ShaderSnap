@@ -45,6 +45,12 @@ namespace ShaderSnap.Core
         public static readonly Color DimOverlay = new Color(0.05f, 0.05f, 0.07f, 0.30f);
 
         public static readonly Color NoteBackground = new Color32(0xFC, 0xD7, 0x6E, 0xFF);
+
+        /// <summary>
+        /// Leader line from a note in the gutter to the frame of the group it describes. Dim enough not to
+        /// compete with the graph, solid enough to follow.
+        /// </summary>
+        public static readonly Color NoteLeader = new Color32(0xFC, 0xD7, 0x6E, 0x66);
         public static readonly Color NoteTitle = new Color32(0x4A, 0x37, 0x06, 0xFF);
         public static readonly Color NoteBody = new Color32(0x58, 0x43, 0x08, 0xFF);
 

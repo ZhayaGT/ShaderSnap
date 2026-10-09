@@ -78,9 +78,58 @@ way, growing on demand to hold same-unit detours.
 
 **Columns are then laid out** left to right at the computed x positions, and the canvas is sized to fit.
 
-**Bands.** Sticky notes and the port legend are drawn under the graph, not beside it. Their heights are
-measured from the text they will hold and reserved as a band at the bottom of the canvas, so a long note
-never overlaps the graph.
+### Group bands
+
+A group frame is the union of its members, so it spans every column they land in. Two frames overlap exactly
+when they share a column and their vertical extents intersect there — and because each extent is measured
+over *all* of a group's columns, ordering the two groups inside one shared column is not enough. A group
+whose members reach lower in some other column still collides.
+
+So each group gets a **band**: a vertical slot whose height is the group's tallest single-column run, applied
+identically in every column it spans. Bands are then packed so that any two whose column ranges intersect
+receive disjoint slots, leaving room for the chrome both frames add (a title strip above, padding below).
+
+The packing processes bands in **descending height**, not in author order. A tall band placed first pushes
+only the bands it actually conflicts with; discovered late, it displaces everything below it. Measured on the
+12-group reference graph, that change alone took the canvas from 4355 units tall to 3590.
+
+The author's own group positions are the tiebreaker, so the result still reads in the order the graph was
+drawn in. They are the only authored positions the asset contains: a node's position lives in the editor's
+`DrawState`, not in the `.shadergraph` file.
+
+**The cost.** On a graph whose groups nest heavily this necessarily makes the canvas taller, because four
+groups sharing one column have to stack where they previously interleaved. Where it hurts — a graph wanted at
+maximum resolution — `Group Frames` can be turned off, which also removes the extra gap the frames need.
+
+**Bands.** The port legend, the watermark and any sticky note with no group of its own are drawn under the
+graph. Their heights are measured from the content they will hold and reserved as bands at the bottom of the
+canvas, so none of them can overlap the graph. Notes that do belong to a group go somewhere better — see
+below.
+
+The watermark band is the one whose height the caller supplies, because only the renderer knows how tall the
+logo is and how many text lines the preset prints. The engine just reserves the space.
+
+### Notes
+
+A note parked in a row at the bottom of the canvas does not say which part of the graph it is about. The
+asset stores the author's intent, though: every note carries an `m_Group` reference and an authored rect.
+
+A note that belongs to a group is therefore drawn in an **annotation gutter** to the left of every column,
+vertically aligned with its group's nodes, with a short leader tick marking it as an annotation. The gutter is
+reserved before anything is placed, so a note there can never sit on top of the graph — the columns simply
+start further right.
+
+The gutter is reserved whenever there is a grouped note to put in it, and it does **not** depend on
+`Group Frames`. The gutter is where notes go; its reason to exist is the note, not the frame. Hiding the
+frames leaves the notes exactly where they were.
+
+A graph whose notes are all free keeps its full width, because there is nothing to anchor.
+
+This is cheaper than it sounds: moving notes out of the bottom band made several graphs *shorter* overall.
+The 26-node grouped fixture went from 2102×1805 to 2477×1548 — wider, because of the gutter, and 257 units
+shorter, because the band it no longer needs was taller than the graph's own remainder.
+
+Notes with no group keep the bottom band, wrapping across the canvas width.
 
 ## 4. Routing
 
