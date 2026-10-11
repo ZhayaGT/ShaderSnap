@@ -7,7 +7,7 @@ code follows, and what a change needs before it can land.
 
 The package is a UPM package, so the fastest loop is to point a throwaway Unity project at your checkout.
 
-1. Create a Unity 6000.3 project.
+1. Create a Unity 2022.3 or newer project.
 2. Add the checkout to `Packages/manifest.json`:
    ```json
    {
@@ -28,9 +28,12 @@ The package is a UPM package, so the fastest loop is to point a throwaway Unity 
 `Window > General > Test Runner` > **EditMode** > Run All.
 
 The export tests render an offscreen UI Toolkit panel and read the pixels back, so they need a graphics
-device and will skip themselves without one. When you change anything that affects layout or drawing,
-run the whole suite — the layout tests assert properties over every node in the fixtures, not just a
-sample, so a regression usually shows up as a specific node name in the failure message.
+device and will skip themselves without one. They also need the editor to be running its player loop, which
+it does not do while its window is in the background — so a suite run from a terminal skips them too. Bring
+the Unity editor window to the front before running the suite if you want the export path exercised. When
+you change anything that affects layout or drawing, run the whole suite — the layout tests assert properties
+over every node in the fixtures, not just a sample, so a regression usually shows up as a specific node name
+in the failure message.
 
 ## Code conventions
 

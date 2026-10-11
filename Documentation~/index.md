@@ -7,7 +7,7 @@ edited. It parses the asset, computes a layout, and draws the result itself.
 |---|---|
 | [Architecture](architecture.md) | The assemblies, the types, and how a request flows from a selected asset to a PNG |
 | [Layout algorithm](layout-algorithm.md) | Ranking, ordering, lane assignment, the aspect solver, and why each choice was made |
-| [Exporter internals](exporter-internals.md) | The offscreen render, the reflection into UI Toolkit, and the fallbacks when it is unavailable |
+| [Exporter internals](exporter-internals.md) | The offscreen render, the editor-loop drive, and how the export reports its outcome |
 | [Package layout](package-layout.md) | The repository structure, the `~` folders, `.meta` files, and the assembly definitions |
 | [Design notes](design-notes.md) | The decisions behind the tool, including the ones that went against the obvious approach |
 | [Troubleshooting](troubleshooting.md) | Symptoms, causes, and what to check |
@@ -48,7 +48,7 @@ An 8-node graph comes out as a single readable strip, with no configuration:
 | The editor window | `Window > ShaderSnap` |
 | Parse an asset | `ShaderGraphParser.Parse(path)` |
 | Lay out a graph | `GraphAutoLayoutEngine.Apply(model, metrics, options)` |
-| Render to a PNG | `PNGExportUtility.Export(model, preset, name, path, out error)` |
+| Render to a PNG | `PNGExportUtility.ExportAsync(model, preset, name, path, onComplete)` |
 | The saved settings | `SnippetExportPreset`, a `ScriptableObject` |
 
 ## Reading the code

@@ -14,20 +14,32 @@ namespace ShaderSnap.Tests
     /// </summary>
     public static class TestPaths
     {
-        public static string Unlit => Require(ShaderSnap.Editor.ShaderSnapPaths.Fixture("UnlitBasic.shadergraph"));
-        public static string Terrain => Require(ShaderSnap.Editor.ShaderSnapPaths.Fixture("TerrainSimple.shadergraph"));
-        public static string PropertyTypes => Require(ShaderSnap.Editor.ShaderSnapPaths.Fixture("PropertyTypes.shadergraph"));
+        public static string Unlit => Require(Fixture("UnlitBasic.shadergraph"));
+        public static string Terrain => Require(Fixture("TerrainSimple.shadergraph"));
+        public static string PropertyTypes => Require(Fixture("PropertyTypes.shadergraph"));
 
         /// <summary>Four authored groups with four notes attached to them.</summary>
-        public static string GroupedNotes => Require(ShaderSnap.Editor.ShaderSnapPaths.Fixture("GroupedNotes.shadergraph"));
+        public static string GroupedNotes => Require(Fixture("GroupedNotes.shadergraph"));
 
         /// <summary>
         /// A path that deliberately does not exist, for the negative parse test. Not validated, because
         /// not existing is the point.
         /// </summary>
-        public static string Missing => ShaderSnap.Editor.ShaderSnapPaths.Fixture("DoesNotExist.shadergraph");
+        public static string Missing => Fixture("DoesNotExist.shadergraph");
 
-        public static string ReferenceFolder => ShaderSnap.Editor.ShaderSnapPaths.ReferenceFolder;
+        public static string ReferenceFolder => ShaderSnap.Editor.ShaderSnapPaths.File("Tests/Reference~");
+
+        /// <summary>
+        /// A <c>.shadergraph</c> fixture, resolved inside the package.
+        ///
+        /// The paths are built here rather than through a package helper: fixtures are the test suite's
+        /// business, and a <c>Fixture()</c> accessor on the shipping type would put the layout of the
+        /// test folders into the editor assembly that buyers receive.
+        /// </summary>
+        static string Fixture(string fileName)
+        {
+            return ShaderSnap.Editor.ShaderSnapPaths.File("Tests/Fixtures~/" + fileName);
+        }
 
         /// <summary>
         /// Fails with the path and the package resolution state when a fixture is absent.

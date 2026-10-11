@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEditor;
 using UnityEditor.UIElements;
 using UnityEngine;
@@ -135,9 +136,9 @@ namespace ShaderSnap.Editor
         {
             var root = new VisualElement { name = "canvas-empty" };
             root.pickingMode = PickingMode.Ignore;
-            root.Add(new Label("Belum ada graph") { name = "empty-title" });
+            root.Add(new Label("No graph selected") { name = "empty-title" });
             root.Add(new Label("Select a .shadergraph asset on the left to preview it.") { name = "empty-body" });
-            root.Add(new Label("Gulir untuk zoom  ·  Seret untuk menggeser") { name = "empty-hint" });
+            root.Add(new Label("Scroll to zoom  ·  Drag to pan") { name = "empty-hint" });
             return root;
         }
 
@@ -195,7 +196,7 @@ namespace ShaderSnap.Editor
             AddToggle("Port Legend", Preset.showPortLegend, value => Preset.showPortLegend = value);
 
             AddSection("Background");
-            AddEnumField("Mode", Preset.backgroundMode, value => Preset.backgroundMode = (SnippetExportPreset.BackgroundMode)value);
+            AddBackgroundModeField();
             AddColorField("Solid Color", Preset.backgroundColor, value => Preset.backgroundColor = value);
             AddColorField("Gradient Top", Preset.backgroundGradientTop, value => Preset.backgroundGradientTop = value);
             AddColorField("Gradient Bottom", Preset.backgroundGradientBottom, value => Preset.backgroundGradientBottom = value);
@@ -228,7 +229,7 @@ namespace ShaderSnap.Editor
             controlBody.Add(toolbar);
 
             exportButton = new Button(OnExport) { text = "Export PNG", name = "export-button" };
-            exportButton.SetEnabled(model != null && model.nodes.Count > 0);
+            RefreshExportButton();
             controlBody.Add(exportButton);
 
             statusLabel = new Label("Select a .shadergraph asset to begin.") { name = "status-label" };
@@ -263,6 +264,38 @@ namespace ShaderSnap.Editor
             var field = new EnumField(label, value);
             field.RegisterValueChangedCallback(evt => { onChanged(evt.newValue); MarkDirty(); });
             controlBody.Add(field);
+        }
+
+        /// <summary>
+        /// The background mode control.
+        ///
+        /// On Unity 6000.3 and newer this is the enum control every other option uses. Below 6000.3 it is a
+        /// <see cref="PopupField{T}"/> over the modes this editor can actually draw:
+        /// <c>Painter2D.fillGradient</c> does not exist there, so offering Gradient or Blurred Editor would
+        /// let the user pick a mode that renders as a flat fill with no explanation of why.
+        /// </summary>
+        void AddBackgroundModeField()
+        {
+            if (ShaderSnapCapabilities.GradientBackgrounds)
+            {
+                AddEnumField("Mode", Preset.backgroundMode,
+                    value => Preset.backgroundMode = (SnippetExportPreset.BackgroundMode)value);
+                return;
+            }
+
+            List<SnippetExportPreset.BackgroundMode> choices =
+                ShaderSnapCapabilities.AvailableBackgroundModes(false);
+            int index = choices.IndexOf(Preset.backgroundMode);
+            var field = new PopupField<SnippetExportPreset.BackgroundMode>("Mode", choices, index < 0 ? 0 : index,
+                DescribeBackgroundMode, DescribeBackgroundMode);
+            field.RegisterValueChangedCallback(evt => { Preset.backgroundMode = evt.newValue; MarkDirty(); });
+            controlBody.Add(field);
+        }
+
+        /// <summary>Matches how the enum control names the modes, so the two editors read the same.</summary>
+        static string DescribeBackgroundMode(SnippetExportPreset.BackgroundMode mode)
+        {
+            return mode == SnippetExportPreset.BackgroundMode.SolidColor ? "Solid Color" : mode.ToString();
         }
 
         void AddColorField(string label, Color value, Action<Color> onChanged)

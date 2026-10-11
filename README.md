@@ -45,9 +45,14 @@ with the node graph laid out to be read rather than to be edited.
 
 ## Requirements
 
-- Unity 6000.3 or newer. The exporter reaches into UI Toolkit's offscreen panel API, which is internal, so
-  the supported version is stated rather than guessed.
-- The `com.unity.nuget.newtonsoft-json` package, pulled in automatically as a dependency.
+- Unity 2022.3 or newer. The exporter drives UI Toolkit's offscreen panel through the editor player loop,
+  and the supported version is stated rather than guessed. The gradient and blurred-editor background
+  modes need Unity 6000.3; on older editors the background mode list offers only Solid Color and
+  Transparent.
+- A graphics device. The export renders into a `RenderTexture` and reads it back, so it does not work
+  under `-nographics`.
+- The `com.unity.nuget.newtonsoft-json` package, pulled in automatically as a dependency. See
+  [Third-Party Notices.txt](Third-Party%20Notices.txt).
 
 ## Install
 
@@ -241,9 +246,11 @@ that need a graphics device skip themselves there; a green CI run does not cover
 `[ShaderSnap] Could not load the editor stylesheet` error naming the path it tried. This means the package
 registry and the files on disk disagree; reimporting the package usually clears it.
 
-**"The UI Toolkit panel rendering API is unavailable on this Unity version".** The exporter reflects into
-`PanelSettings.panel` and four methods on the internal `Panel` type. Unity renamed or removed one of them.
-The message names which one. ShaderSnap is built and tested against Unity 6000.3.
+**"The offscreen panel did not render … the editor player loop did not run".** The export draws the canvas
+through a UI Toolkit panel, and a panel only draws inside the editor's player loop. Unity does not run the
+player loop while the editor window is in the background, so an export started with the editor behind
+another window has no frame to draw in. Bring the editor window to the front and export again. From the
+ShaderSnap window this cannot happen — the window is in front when you click Export PNG.
 
 **The export is slow on a large graph.** Cost grows with node count and multiplier. Measured on this
 machine: the 38-node Terrain graph at 4x takes about 5 s, and the 99-node reference graph at 1x about 1.2 s.

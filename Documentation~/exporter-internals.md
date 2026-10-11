@@ -1,6 +1,6 @@
 # Exporter internals
 
-`PNGExportUtility.Export` is the whole export path. This page explains what it does and why each step
+`PNGExportUtility.ExportAsync` is the whole export path. This page explains what it does and why each step
 looks the way it does, because most of the oddities are forced by Unity's API surface.
 
 ## Why not render a camera
@@ -25,37 +25,52 @@ resolution. A 2x export is genuinely sharper than a 1x export, not a blown-up bi
 have identical text-to-canvas ratios. The multiplier is therefore a quality knob, not a readability knob —
 that is `TextScale`.
 
-## The reflection
+## Driving the panel from the editor loop
 
-UI Toolkit's panel object is internal, and the four calls needed to lay out and draw a tree offscreen are
-not public API:
+`PanelSettings.targetTexture` says *where* the panel draws, but Unity exposes no public method that makes
+it draw now. The panel draws inside the player loop, so the exporter works with the loop instead of around
+it:
 
-| Member | Declared on | Why it is needed |
-|---|---|---|
-| `panel` | `PanelSettings` (internal property) | To reach the `Panel` at all |
-| `ApplyStyles` | `Panel` | Resolves stylesheets into computed styles |
-| `ValidateLayout` | `Panel` | Runs the layout pass |
-| `UpdateForRepaint` | `Panel` | Prepares the draw data |
-| `Render` | `Panel` | Executes the draw |
+1. create the `RenderTexture`, the `PanelSettings` and a hidden `UIDocument` host, and attach the canvas to
+   the document's `rootVisualElement`;
+2. subscribe to `EditorApplication.update` and call `EditorApplication.QueuePlayerLoopUpdate()` on every
+   tick;
+3. on each tick where `Time.frameCount` has advanced — that is, a player-loop frame actually ran — read the
+   target back and check whether the canvas has appeared in it;
+4. stop on the first frame with content, or when the budget runs out.
 
-`ResolvePanelMembers` binds all five with
-`BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic` and treats them as a set: if any
-one is missing, export fails with a message naming it. Skipping a missing member would produce a PNG with
-a stale or zeroed layout that still looks plausible, which is worse than an error.
+Nothing here is internal, and nothing is resolved by name, so a Unity version that changes the panel's
+internals cannot break the export. The cost is the asynchrony: the export cannot return a `bool`, because
+the frame that finishes it has not happened yet.
 
-Two details that matter if Unity changes these APIs:
+### Why the completion is a callback
 
-- The parameterless overload is selected explicitly
-  (`GetMethod(name, flags, null, Type.EmptyTypes, null)`). A bare `GetMethod(name, flags)` throws
-  `AmbiguousMatchException` if a second overload appears, and that exception would escape the
-  `bool`/`out string error` contract.
-- Only a *successful* resolution is cached. Caching a failure would make a transient problem permanent for
-  the rest of the session.
+`ExportAsync` reports through `Action<bool, string>`, invoked exactly once — on the editor tick that writes
+the PNG, or immediately for a precondition it can decide without a panel (no graph, an empty canvas, a size
+the device or the pixel budget refuses). The window's export button is disabled until the callback runs, so
+a second export cannot start on top of the first.
+
+### The editor must be running the player loop
+
+An editor window in the background does not run the player loop, so the panel is never drawn. The exporter
+detects that case directly — no frame has advanced after a second — and fails with a message saying so,
+rather than waiting out its whole budget. Exporting from the ShaderSnap window is unaffected: the window is
+in front when the button is clicked, and the first frame is enough.
+
+The test suite has the same requirement, which is why `RequiresGraphics.SkipIfPlayerLoopIsStalled()` exists
+alongside the graphics-device guard.
+
+### Reading the target back
+
+A frame that contains only the panel's own clear colour is one the canvas has not been drawn into yet, so
+the check is "does any pixel differ from the clear colour". That is one pass over the target, done on the
+raw texture data rather than through `GetPixels32`, which would copy an image that can be a hundred
+megapixels.
 
 ## The lifecycle
 
-Everything between creating the `RenderTexture` and writing the file sits inside a `try`, with the cleanup
-in `finally`:
+Every resource an export allocates is released on every exit path — success, a throw, or the timeout —
+because the export now spans several editor ticks and any of them can be the last:
 
 ```
 RenderTexture          GPU memory, proportional to the pixel budget
@@ -66,11 +81,10 @@ RenderTexture.active   global state
 ```
 
 The host carries `HideFlags.HideAndDontSave`, so a leaked one survives scene loads and would never be
-cleaned up. `RenderTexture.active` is restored in the `finally` as well: leaving it pointing at a released
-texture breaks every later render in the editor, not just the next export.
-
-Reflection failures arrive as `TargetInvocationException`; the catch unwraps it so the message names the
-real cause.
+cleaned up. `RenderTexture.active` is restored for the same reason: leaving it pointing at a released
+texture breaks every later render in the editor, not just the next export. The subscription to
+`EditorApplication.update` is dropped there too — a callback left behind would keep the whole job, and its
+textures, alive for the rest of the session.
 
 ## The two size limits
 
@@ -182,9 +196,15 @@ test can freeze it.
 
 ## Testing the exporter
 
-The export tests need a real graphics device, because the panel renders and the pixels are read back. They
-call `RequiresGraphics.SkipIfUnavailable()`, which turns a headless run into a skip with an explanatory
-message rather than a failure.
+The export tests need two things: a real graphics device, because the panel renders and the pixels are read
+back; and a running editor player loop, because that is where the panel draws. Each has its own guard —
+`RequiresGraphics.SkipIfUnavailable()` and `RequiresGraphics.SkipIfPlayerLoopIsStalled()` — so a headless CI
+run, and a local run with the editor window in the background, both report as skips with an explanatory
+message rather than as failures.
+
+The tests are `[UnityTest]` coroutines, because the export finishes on a later editor tick. `ExportHarness`
+drives one export and asserts the callback reported success, so a failure carries the exporter's own message
+instead of a bare timeout.
 
 The byte-comparison determinism tests are meaningful on one machine. Rasterisation can differ by a pixel
 or two between GPU drivers, so they are not a cross-platform guarantee; the images under

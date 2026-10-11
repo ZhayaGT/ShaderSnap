@@ -48,6 +48,14 @@ namespace ShaderSnap.Core
         /// <summary>The placed graph. Callers that need to know where a node ended up read it here.</summary>
         public GraphLayout Layout => layout;
 
+        /// <summary>
+        /// Text size correction for the offscreen export panel, used only on Unity versions that lack
+        /// <c>VisualElement.scaledPixelsPerPoint</c> (before 6000.0). Set it to the panel's scale, which in the
+        /// export path is the resolution multiplier. The preview panel leaves it at 1, which is what its own
+        /// scale is.
+        /// </summary>
+        public float TextPixelScaleOverride { get; set; } = 1f;
+
         public void SetData(GraphModel graph, SnippetExportPreset exportPreset, string shaderName)
         {
             model = graph;
@@ -314,7 +322,14 @@ namespace ShaderSnap.Core
             // it does not follow PanelSettings.scale. Geometry drawn through Painter2D does. Without
             // this correction the text keeps its absolute pixel size while nodes and wires grow with
             // the resolution multiplier, so a 4x export ends up with quarter-size labels.
+#if UNITY_6000_0_OR_NEWER
             textPixelScale = scaledPixelsPerPoint;
+#else
+            // VisualElement.scaledPixelsPerPoint does not exist before Unity 6000.0. In the export path the
+            // panel is driven with PanelSettings.scale = resolutionMultiplier, so the caller-supplied override
+            // is the same number. The preview panel leaves it at 1, which is what its scale is.
+            textPixelScale = TextPixelScaleOverride;
+#endif
             DrawBackdrop(painter);
             if (preset.showColumnGuides) DrawColumnGuides(painter, context);
             if (preset.showGroups) DrawGroupFrames(painter, context);

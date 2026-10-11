@@ -1,12 +1,22 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using ShaderSnap.Core;
 using ShaderSnap.Editor;
 
 namespace ShaderSnap.Tests
 {
+    /// <summary>
+    /// The exporter, exercised through the pixels it writes.
+    ///
+    /// Every test that renders is a <see cref="UnityTestAttribute"/> coroutine, because the export finishes
+    /// on a later editor tick: the panel draws inside the player loop rather than on demand. The ones that
+    /// only exercise the preconditions stay plain <c>[Test]</c> methods, because the exporter answers those
+    /// synchronously.
+    /// </summary>
     public class PNGExportUtilityTests
     {
         static string FixturePath => TestPaths.Unlit;
@@ -39,9 +49,9 @@ namespace ShaderSnap.Tests
             TestPaths.CleanOutput();
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_WritesRequestedDimensionsForEveryMultiplier()
+        public IEnumerator Export_WritesRequestedDimensionsForEveryMultiplier()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(FixturePath);
@@ -53,7 +63,7 @@ namespace ShaderSnap.Tests
                 preset.resolutionMultiplier = multiplier;
                 string path = Path.Combine(OutputDirectory, $"unlit_{multiplier}x.png");
 
-                Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+                yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", path);
 
                 Texture2D decoded = Decode(path);
                 Assert.AreEqual(Mathf.CeilToInt(canvas.x * multiplier), decoded.width, $"width at {multiplier}x");
@@ -62,9 +72,9 @@ namespace ShaderSnap.Tests
             }
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_IsDeterministic()
+        public IEnumerator Export_IsDeterministic()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(FixturePath);
@@ -74,16 +84,16 @@ namespace ShaderSnap.Tests
             string first = Path.Combine(OutputDirectory, "determinism_a.png");
             string second = Path.Combine(OutputDirectory, "determinism_b.png");
 
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", first, out string errorA), errorA);
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", second, out string errorB), errorB);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", first);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", second);
 
             CollectionAssert.AreEqual(File.ReadAllBytes(first), File.ReadAllBytes(second),
                 "identical parameters must produce identical PNG bytes");
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_IsDeterministicWithWatermarkEnabled()
+        public IEnumerator Export_IsDeterministicWithWatermarkEnabled()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(FixturePath);
@@ -98,16 +108,16 @@ namespace ShaderSnap.Tests
             string first = Path.Combine(OutputDirectory, "determinism_wm_a.png");
             string second = Path.Combine(OutputDirectory, "determinism_wm_b.png");
 
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", first, out string errorA), errorA);
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", second, out string errorB), errorB);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", first);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", second);
 
             CollectionAssert.AreEqual(File.ReadAllBytes(first), File.ReadAllBytes(second),
                 "watermark date is the only time-dependent element and must be stable within a session");
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_KeepsNodesVisibleWhenWindowFrameEnabled()
+        public IEnumerator Export_KeepsNodesVisibleWhenWindowFrameEnabled()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(FixturePath);
@@ -119,7 +129,7 @@ namespace ShaderSnap.Tests
             preset.showWatermark = false;
 
             string path = Path.Combine(OutputDirectory, "frame_nodes.png");
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", path);
 
             Texture2D decoded = Decode(path);
 
@@ -168,9 +178,9 @@ namespace ShaderSnap.Tests
             Object.DestroyImmediate(decoded);
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_TransparentModeKeepsZeroAlphaBackground()
+        public IEnumerator Export_TransparentModeKeepsZeroAlphaBackground()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(FixturePath);
@@ -178,16 +188,16 @@ namespace ShaderSnap.Tests
             preset.backgroundMode = SnippetExportPreset.BackgroundMode.Transparent;
 
             string path = Path.Combine(OutputDirectory, "transparent.png");
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", path);
 
             Texture2D decoded = Decode(path);
             Assert.AreEqual(0f, decoded.GetPixel(1, 1).a, 0.004f, "background corner must be fully transparent");
             Object.DestroyImmediate(decoded);
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_DoesNotModifySourceAsset()
+        public IEnumerator Export_DoesNotModifySourceAsset()
         {
             RequiresGraphics.SkipIfUnavailable();
             byte[] before = File.ReadAllBytes(FixturePath);
@@ -195,24 +205,33 @@ namespace ShaderSnap.Tests
             preset.resolutionMultiplier = 1;
 
             string path = Path.Combine(OutputDirectory, "readonly.png");
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", path);
 
             CollectionAssert.AreEqual(before, File.ReadAllBytes(FixturePath), "source .shadergraph must stay byte identical");
         }
 
+        /// <summary>
+        /// An empty graph is refused before anything is allocated, so the callback runs before this test
+        /// could yield — which is why it stays a plain test.
+        /// </summary>
         [Test]
         public void Export_RejectsEmptyGraph()
         {
             preset.resolutionMultiplier = 1;
             string path = Path.Combine(OutputDirectory, "empty.png");
 
-            Assert.IsFalse(PNGExportUtility.Export(new GraphModel(), preset, "Empty", path, out string error));
+            bool? success = null;
+            string error = null;
+            PNGExportUtility.ExportAsync(new GraphModel(), preset, "Empty", path,
+                (ok, message) => { success = ok; error = message; });
+
+            Assert.IsFalse(success, "the callback must run before ExportAsync returns for a precondition failure");
             Assert.IsNotEmpty(error);
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_DrawsCategoryStrip()
+        public IEnumerator Export_DrawsCategoryStrip()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(FixturePath);
@@ -228,7 +247,7 @@ namespace ShaderSnap.Tests
             preset.showWatermark = false;
 
             string path = Path.Combine(OutputDirectory, "category_strip.png");
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", path);
 
             Texture2D decoded = Decode(path);
             LayoutMetrics metrics = LayoutMetrics.FromFontScale(preset.textScale, preset.verticalSpread);
@@ -257,9 +276,9 @@ namespace ShaderSnap.Tests
             Object.DestroyImmediate(decoded);
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_ScalesNodeTextWithTextScale()
+        public IEnumerator Export_ScalesNodeTextWithTextScale()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(FixturePath);
@@ -274,15 +293,18 @@ namespace ShaderSnap.Tests
             preset.showDropShadow = false;
             preset.showWatermark = false;
 
-            int small = MeasureTitleTextHeight(model, "MultiplyNode", 1f, "text_scale_1.png");
-            int large = MeasureTitleTextHeight(model, "MultiplyNode", 2f, "text_scale_2.png");
+            int small = 0;
+            yield return MeasureTitleTextHeight(model, "MultiplyNode", 1f, "text_scale_1.png", value => small = value);
+            int large = 0;
+            yield return MeasureTitleTextHeight(model, "MultiplyNode", 2f, "text_scale_2.png", value => large = value);
 
             Assert.Greater(small, 0, "the node title must render at textScale 1");
             Assert.GreaterOrEqual(large, small * 1.6f,
                 $"doubling textScale must roughly double the title text height (got {small} -> {large})");
         }
 
-        int MeasureTitleTextHeight(GraphModel model, string typeSuffix, float textScale, string fileName)
+        IEnumerator MeasureTitleTextHeight(GraphModel model, string typeSuffix, float textScale, string fileName,
+                                           System.Action<int> onMeasured)
         {
             preset.textScale = textScale;
 
@@ -293,13 +315,13 @@ namespace ShaderSnap.Tests
             Rect rect = LayoutFor(model, preset).nodeRects[node.id];
 
             string path = Path.Combine(OutputDirectory, fileName);
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", path);
 
             Texture2D decoded = Decode(path);
             LayoutMetrics metrics = LayoutMetrics.FromFontScale(textScale, preset.verticalSpread);
 
-            int left = Mathf.Max(0, Mathf.RoundToInt(rect.x));
-            int right = Mathf.Min(decoded.width - 1, Mathf.RoundToInt(rect.xMax));
+            int left = Mathf.Max(0, Mathf.RoundToInt(rect.x + 2f));
+            int right = Mathf.Min(decoded.width - 1, Mathf.RoundToInt(rect.xMax - 2f));
             int top = Mathf.RoundToInt(rect.y);
             int bottom = Mathf.RoundToInt(rect.y + metrics.TitleHeight);
 
@@ -323,12 +345,12 @@ namespace ShaderSnap.Tests
             }
 
             Object.DestroyImmediate(decoded);
-            return firstRow < 0 ? 0 : lastRow - firstRow + 1;
+            onMeasured(firstRow < 0 ? 0 : lastRow - firstRow + 1);
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_ScalesTextWithResolutionMultiplier()
+        public IEnumerator Export_ScalesTextWithResolutionMultiplier()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(FixturePath);
@@ -340,9 +362,12 @@ namespace ShaderSnap.Tests
             preset.showWatermark = false;
             preset.textScale = 1f;
 
-            float at1x = MeasureTitleTextHeightInCanvasUnits(model, node.id, 1);
-            float at2x = MeasureTitleTextHeightInCanvasUnits(model, node.id, 2);
-            float at4x = MeasureTitleTextHeightInCanvasUnits(model, node.id, 4);
+            float at1x = 0f;
+            yield return MeasureTitleTextHeightInCanvasUnits(model, node.id, 1, value => at1x = value);
+            float at2x = 0f;
+            yield return MeasureTitleTextHeightInCanvasUnits(model, node.id, 2, value => at2x = value);
+            float at4x = 0f;
+            yield return MeasureTitleTextHeightInCanvasUnits(model, node.id, 4, value => at4x = value);
 
             Assert.Greater(at1x, 0f, "title text must render at 1x");
             Assert.AreEqual(at1x, at2x, at1x * 0.2f,
@@ -351,9 +376,9 @@ namespace ShaderSnap.Tests
                 $"title text must keep its size relative to the canvas at 4x (1x={at1x}, 4x={at4x})");
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_RightAlignedPortLabelSitsNearItsPort()
+        public IEnumerator Export_RightAlignedPortLabelSitsNearItsPort()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(FixturePath);
@@ -370,7 +395,7 @@ namespace ShaderSnap.Tests
             LayoutMetrics metrics = LayoutMetrics.FromFontScale(preset.textScale, preset.verticalSpread);
 
             string path = Path.Combine(OutputDirectory, "label_anchor.png");
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", path);
 
             Texture2D decoded = Decode(path);
             int left = Mathf.RoundToInt(rect.x);
@@ -403,11 +428,12 @@ namespace ShaderSnap.Tests
             Object.DestroyImmediate(decoded);
         }
 
-        float MeasureTitleTextHeightInCanvasUnits(GraphModel model, string nodeId, int multiplier)
+        IEnumerator MeasureTitleTextHeightInCanvasUnits(GraphModel model, string nodeId, int multiplier,
+                                                       System.Action<float> onMeasured)
         {
             preset.resolutionMultiplier = multiplier;
             string path = Path.Combine(OutputDirectory, $"text_scale_{multiplier}x.png");
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", path);
 
             Texture2D decoded = Decode(path);
             Rect rect = LayoutFor(model, preset).nodeRects[nodeId];
@@ -438,7 +464,7 @@ namespace ShaderSnap.Tests
             }
 
             Object.DestroyImmediate(decoded);
-            return firstRow < 0 ? 0f : (lastRow - firstRow + 1) / (float)multiplier;
+            onMeasured(firstRow < 0 ? 0f : (lastRow - firstRow + 1) / (float)multiplier);
         }
 
         static GraphNode FindNode(GraphModel model, string typeSuffix)
@@ -449,10 +475,6 @@ namespace ShaderSnap.Tests
             return null;
         }
 
-        /// <summary>
-        /// Mirrors the layout path SnippetCanvasRenderer uses, so a test comparing against the
-        /// exported dimensions cannot drift from the renderer when the preset enables Auto Aspect.
-        /// </summary>
         /// <summary>
         /// The placement the exporter will actually use, read from the renderer.
         ///
@@ -477,9 +499,9 @@ namespace ShaderSnap.Tests
         /// with a solid magenta texture *and* with the built-in <c>Texture2D.whiteTexture</c>, so nothing
         /// short of counting pixels in the output catches it.
         /// </summary>
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_DrawsTheWatermarkLogo()
+        public IEnumerator Export_DrawsTheWatermarkLogo()
         {
             RequiresGraphics.SkipIfUnavailable();
 
@@ -499,7 +521,7 @@ namespace ShaderSnap.Tests
             preset.watermarkLogo = logo;
 
             string path = Path.Combine(OutputDirectory, "watermark_logo.png");
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", path);
 
             Texture2D decoded = Decode(path);
             Color32[] output = decoded.GetPixels32();
@@ -518,9 +540,9 @@ namespace ShaderSnap.Tests
         }
 
         /// <summary>With no logo assigned the watermark must still print its text lines.</summary>
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void Export_DrawsWatermarkTextWithoutALogo()
+        public IEnumerator Export_DrawsWatermarkTextWithoutALogo()
         {
             RequiresGraphics.SkipIfUnavailable();
 
@@ -531,7 +553,7 @@ namespace ShaderSnap.Tests
             preset.resolutionMultiplier = 1;
 
             string path = Path.Combine(OutputDirectory, "watermark_text.png");
-            Assert.IsTrue(PNGExportUtility.Export(model, preset, "UnlitBasic", path, out string error), error);
+            yield return ExportHarness.RunAndAssert(model, preset, "UnlitBasic", path);
 
             Texture2D decoded = Decode(path);
             // The bottom-right corner is where the watermark prints; it must not be flat background.

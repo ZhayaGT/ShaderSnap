@@ -4,6 +4,76 @@ All notable changes to this package are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.0] - 2026-10-09
+
+Major, not minor: `PNGExportUtility.Export` is documented public API, and replacing it with `ExportAsync`
+changes the signature.
+
+### Changed
+
+- **The exporter no longer reflects into Unity's internals.** It reached `PanelSettings.panel` and four
+  methods on the internal `Panel` type to force an offscreen UI Toolkit panel to lay out and draw. That is a
+  dependency on private members of the engine, and it is prohibited in packages published on the Unity Asset
+  Store. The panel now draws the way a panel is meant to: the exporter points it at a `RenderTexture`,
+  attaches the canvas to a hidden `UIDocument`, and asks for a player-loop update on every editor tick until
+  the canvas appears in the target. The output is unchanged — byte for byte, on the shipped fixtures.
+
+- **`PNGExportUtility.Export` is now `ExportAsync`.** An editor-frame-driven render cannot be awaited
+  synchronously, so the signature is `ExportAsync(model, preset, name, path, Action<bool, string>
+  onComplete)`. The callback runs exactly once, on the editor tick that finishes the work, or immediately
+  for a precondition the exporter can decide without a panel. The ShaderSnap window disables its export
+  button until the callback runs, so a second export cannot start on top of the first. This is a breaking
+  change for anyone calling the exporter directly.
+
+### Added
+
+- **Support for Unity 2022.3 and newer**, down from 6000.3. The package's declared minimum is now `2022.3`
+  (`unityRelease` `0f1`, the lowest 2022.3 patch), and the CI matrix compiles against `2022.3.76f1` as well
+  as `6000.3.1f1`. Everything the renderer needs exists in 2022.3 except `Painter2D.fillGradient` and the
+  public `VisualElement.scaledPixelsPerPoint`, which both already had compile-time fallbacks.
+
+- `ShaderSnapCapabilities`, which reports whether the gradient background modes can be drawn. Below Unity
+  6000.3 the Background section offers only Solid Color and Transparent, and a preset saved on a newer
+  editor is coerced to Solid Color on load with the reason in the status line. The alternative was a mode
+  that silently renders as a flat fill.
+
+- A sample graph under `Samples~/FancyLoading`, with a page explaining the three options worth trying first.
+- `Third-Party Notices.txt`, covering the `com.unity.nuget.newtonsoft-json` dependency.
+- `unityRelease` in `package.json`, pinning the patch level the package is tested against.
+
+### Removed
+
+- `ShaderSnapPaths.Fixture(string)` and `ShaderSnapPaths.ReferenceFolder`. They were public API on the
+  shipping assembly that only pointed at the test folders; the suite builds those paths itself.
+
+### Fixed
+
+- **Text was drawn at `1/resolutionMultiplier` of its intended size on Unity versions below 6000.0.**
+  `TextPixelScaleOverride` existed and was read, but nothing ever wrote it, so a 2x or 4x export on those
+  versions had labels at half or quarter size. The exporter now sets it to the multiplier it drives the
+  panel's `PanelSettings.scale` with, which is the value `scaledPixelsPerPoint` reports for that panel.
+  6000.0 and newer are unaffected: they still read `scaledPixelsPerPoint`, so the override is inert there
+  and the 6000.3 export is byte-identical either way.
+
+- **Six UI strings were left in Indonesian** among English labels in the same panel: the rejected-asset
+  message, the large-graph warning, the saved-path status, the save-preset dialog title, and the two
+  empty-state lines.
+
+### Known limitations
+
+- The export needs a graphics device; it does not work under `-nographics`.
+- The export needs the editor to be running its player loop, which it does not do while the editor window is
+  in the background. Exporting from the ShaderSnap window is unaffected. The export tests skip themselves in
+  that state rather than failing.
+- **The gradient and blurred-editor background modes need Unity 6000.3.** On 2022.3 the background mode list
+  offers only Solid Color and Transparent.
+- **2022.3 support is API-verified, not observed.** No 2022.3 editor is available here and the CI runner is
+  headless, so the pre-6000.0 text-scale path and the pre-6000.3 window branch are compiled and unit-tested
+  but never executed on a real 2022.3 editor. The `Samples~/PortTypes` graph was authored against Shader
+  Graph 17.3 and has not been opened on 2022.3's 14.x either; ShaderSnap itself parses the JSON directly and
+  never asks Shader Graph to open the file, so the tool is unaffected either way. See
+  `Documentation~/design-notes.md`.
+
 ## [1.0.2] - 2026-10-09
 
 ### Fixed

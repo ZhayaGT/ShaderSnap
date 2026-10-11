@@ -11,11 +11,13 @@ README.md               the user-facing page
 CHANGELOG.md            release history
 CONTRIBUTING.md         how to work on this
 LICENSE.md              MIT
+Third-Party Notices.txt licences of the third-party components this package depends on
 Core/                   editor-only, no editor API — parser, layout, drawing, palette, preset
 Editor/                 editor-only — window, exporter, watcher, package path helper
 Tests/Editor/           EditMode suite
 Tests/Fixtures~/        .shadergraph assets the suite parses (the `~` keeps Unity from importing them)
 Tests/Reference~/       exported PNGs for manual comparison
+Samples~/PortTypes/     the sample the Package Manager can import into a project
 Documentation~/         the documentation pages (the `~` keeps Unity from importing them)
 .github/workflows/      CI
 ```
@@ -28,6 +30,9 @@ A folder whose name ends in `~` is ignored by Unity's asset pipeline entirely. T
   shaders and fail to compile them as missing dependencies.
 - `Tests/Reference~` holds PNGs that would otherwise be imported as textures and bloat the project.
 - `Documentation~` holds markdown, which Unity would otherwise try to import.
+- `Samples~/PortTypes` is the sample listed in `package.json`. Unity does not import it into the project
+  on its own — the Package Manager's **Import** button copies it out of `~` and into `Assets/`, which is
+  exactly the behaviour a sample wants: the graph is not compiled until the user asks for it.
 
 Files in these folders have no `.meta` files, and must not have any.
 
@@ -51,6 +56,17 @@ GUID.
 
 All three are editor-only because the tool is an editor tool. `ShaderSnap.Tests` is gated on
 `UNITY_INCLUDE_TESTS` and is not auto-referenced.
+
+## What ships to the Asset Store
+
+`Tests/` is excluded from the uploaded package: three of its four `.shadergraph` fixtures are byte-identical
+copies of assets shipped inside `com.unity.shadergraph`, which is licensed under the Unity Companion License
+and grants no redistribution right, and a test suite is not part of what the tool does for a buyer. The
+folder is removed for the duration of the upload and restored afterwards, so the repository keeps the suite
+and the published package does not contain it.
+
+The `Samples~/PortTypes` graph is original for the same reason: the graph in the README's hero image comes
+from Unity's own Shader Graph samples and cannot be redistributed.
 
 ## Using the package from a checkout
 

@@ -1,9 +1,10 @@
 {
   "name": "com.zhayagt.shadersnap",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "displayName": "ShaderSnap",
   "description": "Export a Unity Shader Graph as a clean, readable PNG. ShaderSnap re-lays out the graph deterministically instead of screenshotting the editor, so the output has consistent spacing, node-avoiding wire routing, Shader Graph node styling, and export up to 4x without bitmap scaling.",
-  "unity": "6000.3",
+  "unity": "2022.3",
+  "unityRelease": "0f1",
   "type": "tool",
   "dependencies": {
     "com.unity.nuget.newtonsoft-json": "3.2.2"
@@ -19,14 +20,20 @@
     "graph layout"
   ],
   "author": {
-    "name": "ZhayaGT",
+    "name": "Zhaya Corp AS Publisher",
     "url": "https://github.com/ZhayaGT"
   },
   "license": "MIT",
   "documentationUrl": "https://github.com/ZhayaGT/ShaderSnap/blob/main/Documentation~/index.md",
   "changelogUrl": "https://github.com/ZhayaGT/ShaderSnap/blob/main/CHANGELOG.md",
   "licensesUrl": "https://github.com/ZhayaGT/ShaderSnap/blob/main/LICENSE.md",
-  "samples": [],
+  "samples": [
+    {
+      "displayName": "Port Types",
+      "description": "A URP graph that mixes Float, Vector 2 and Vector 4 ports, to try the exporter on.",
+      "path": "Samples~/PortTypes"
+    }
+  ],
   "repository": {
     "type": "git",
     "url": "https://github.com/ZhayaGT/ShaderSnap.git"

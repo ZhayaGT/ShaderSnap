@@ -14,13 +14,33 @@ disagree — usually after moving or renaming the package folder without letting
 **Fix.** Reimport the package: `Window > Package Manager`, select ShaderSnap, and use the context menu's
 reimport action. If it persists, check that `Editor/Styles/ShaderSnap.uss` exists at the path in the error.
 
-## "The UI Toolkit panel rendering API is unavailable on this Unity version"
+## "The offscreen panel did not render … the editor player loop did not run"
 
-**Cause.** The exporter reflects into `PanelSettings.panel` and four methods on the internal `Panel` type.
-Unity renamed or removed one of them. The message names which.
+**Symptom.** An export fails with a message saying the player loop did not run, and naming the number of
+editor updates it waited through.
 
-**Fix.** None from your side — the package needs updating for that Unity version. ShaderSnap is built and
-tested against Unity 6000.3.
+**Cause.** The exporter draws the canvas through a UI Toolkit panel pointed at a `RenderTexture`, and a
+panel only draws inside the editor's player loop. Unity does not run the player loop while the editor window
+is in the background, so an export started with the editor behind another window has no frame to draw in.
+
+**Fix.** Bring the Unity editor window to the front and export again. From the ShaderSnap window this cannot
+happen — the window is in front when the button is clicked, and the first frame is enough.
+
+## Export tests fail with a graphics error, or skip
+
+**Cause.** The export renders an offscreen UI Toolkit panel and reads the pixels back, so it needs a real
+graphics device.
+
+**Behaviour.** Under `-batchmode -nographics` (the usual CI invocation) the tests call
+`RequiresGraphics.SkipIfUnavailable()` and report as skipped with an explanatory message, rather than
+failing. If they *fail* instead, the graphics device reported itself as available and then the render
+failed — check the console for the underlying Unity error.
+
+**Also required: a running player loop.** The panel draws inside the editor's player loop, and Unity does
+not run the player loop while the editor window is in the background. Running the suite from a terminal
+therefore leaves the editor behind the terminal, and the export tests call
+`RequiresGraphics.SkipIfPlayerLoopIsStalled()` and report as skipped with a message naming the fix. Bring
+the Unity editor window to the front and run the suite again to exercise the export path.
 
 ## The tests do not appear in the Test Runner
 
@@ -36,16 +56,6 @@ the entry the assembly is silently not built.
   ]
 }
 ```
-
-## Export tests fail with a graphics error, or skip
-
-**Cause.** The export renders an offscreen UI Toolkit panel and reads the pixels back, so it needs a real
-graphics device.
-
-**Behaviour.** Under `-batchmode -nographics` (the usual CI invocation) the tests call
-`RequiresGraphics.SkipIfUnavailable()` and report as skipped with an explanatory message, rather than
-failing. If they *fail* instead, the graphics device reported itself as available and then the render
-failed — check the console for the underlying Unity error.
 
 ## The determinism test fails
 

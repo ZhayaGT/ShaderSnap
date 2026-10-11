@@ -1,7 +1,9 @@
+using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 using ShaderSnap.Core;
 using ShaderSnap.Editor;
 
@@ -30,9 +32,9 @@ namespace ShaderSnap.Tests
             TestPaths.CleanOutput();
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void EveryStyleExports()
+        public IEnumerator EveryStyleExports()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(TerrainPath);
@@ -44,8 +46,7 @@ namespace ShaderSnap.Tests
             {
                 SnippetExportPreset preset = MakePreset(style);
                 string path = Path.Combine(directory, $"wire_{style}.png");
-                Assert.IsTrue(PNGExportUtility.Export(model, preset, "TerrainSimple", path, out string error),
-                    $"{style} must export: {error}");
+                yield return ExportHarness.RunAndAssert(model, preset, "TerrainSimple", path);
                 Assert.IsTrue(File.Exists(path), $"{style} must write a file");
                 Object.DestroyImmediate(preset);
             }
@@ -67,9 +68,9 @@ namespace ShaderSnap.Tests
             Object.DestroyImmediate(target);
         }
 
-        [Test]
+        [UnityTest]
         [Category("RequiresGPU")]
-        public void StylesProduceDifferentImages()
+        public IEnumerator StylesProduceDifferentImages()
         {
             RequiresGraphics.SkipIfUnavailable();
             GraphModel model = ShaderGraphParser.Parse(TerrainPath);
@@ -81,7 +82,7 @@ namespace ShaderSnap.Tests
             {
                 SnippetExportPreset preset = MakePreset(style);
                 string path = Path.Combine(directory, $"distinct_{style}.png");
-                Assert.IsTrue(PNGExportUtility.Export(model, preset, "TerrainSimple", path, out string error), error);
+                yield return ExportHarness.RunAndAssert(model, preset, "TerrainSimple", path);
                 bytes[style] = File.ReadAllBytes(path);
                 Object.DestroyImmediate(preset);
             }

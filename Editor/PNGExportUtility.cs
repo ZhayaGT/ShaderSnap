@@ -1,6 +1,6 @@
 using System;
 using System.IO;
-using System.Reflection;
+using Unity.Collections;
 using UnityEditor;
 using UnityEngine;
 using UnityEngine.UIElements;
@@ -12,13 +12,18 @@ namespace ShaderSnap.Editor
     {
         public const long MaxPixelBudget = 96L * 1024 * 1024;
 
-        static PropertyInfo panelProperty;
-        static MethodInfo applyStylesMethod;
-        static MethodInfo validateLayoutMethod;
-        static MethodInfo updateForRepaintMethod;
-        static MethodInfo renderMethod;
-        static bool membersResolved;
-        static string resolveError;
+        /// <summary>Frames the panel may draw nothing before the export is declared stuck.</summary>
+        const int MaxRenderFrames = 60;
+
+        /// <summary>
+        /// Seconds without a single player-loop frame before the editor is declared unable to draw.
+        /// An editor window in the background does not run the player loop, so this is short: waiting
+        /// longer cannot help, because nothing is being drawn.
+        /// </summary>
+        const double StallSeconds = 1.0;
+
+        /// <summary>Overall wall-clock guard, for a machine slow enough that the frame budget is not the limit.</summary>
+        const double RenderTimeoutSeconds = 10.0;
 
         public static string BuildSuggestedName(string shaderName, int width, int height)
         {
@@ -27,121 +32,67 @@ namespace ShaderSnap.Editor
             return $"{safe}_{width}x{height}_{System.DateTime.Now:yyyyMMdd}.png";
         }
 
-        public static bool Export(GraphModel model, SnippetExportPreset preset, string shaderName, string path, out string error)
+        /// <summary>
+        /// Renders the graph offscreen and writes it to <paramref name="path"/> as a PNG, reporting the
+        /// outcome through <paramref name="onComplete"/> exactly once.
+        ///
+        /// Asynchronous because there is no public API that makes a UI Toolkit panel lay out and draw:
+        /// <see cref="PanelSettings.targetTexture"/> says where the panel should draw, but the drawing
+        /// happens in the editor's player loop. The export therefore gives the panel a render target,
+        /// attaches the canvas to a hidden <see cref="UIDocument"/>, asks for a player-loop update on
+        /// every editor tick and watches the target until the graph appears in it. The callback arrives
+        /// on the tick that finishes the work.
+        ///
+        /// Everything that can be decided without the panel — a missing graph, an empty canvas, a size
+        /// the device or the pixel budget refuses — is decided before the first tick, and reported
+        /// through the same callback.
+        /// </summary>
+        /// <param name="onComplete">Called with <c>true</c> and a null error once the PNG is written, or
+        /// with <c>false</c> and a message naming what went wrong.</param>
+        public static void ExportAsync(GraphModel model, SnippetExportPreset preset, string shaderName,
+                                       string path, Action<bool, string> onComplete)
         {
-            error = null;
+            // A caller with no callback has no way to learn the outcome, so this is a programming error
+            // rather than an export failure.
+            if (onComplete == null) throw new ArgumentNullException(nameof(onComplete));
+
             if (model == null || preset == null)
             {
-                error = "No graph is ready to export.";
-                return false;
+                onComplete(false, "No graph is ready to export.");
+                return;
             }
             if (string.IsNullOrEmpty(path))
             {
-                error = "The export path is empty.";
-                return false;
+                onComplete(false, "The export path is empty.");
+                return;
             }
-            if (!ResolvePanelMembers(out error)) return false;
 
             int multiplier = Mathf.Clamp(preset.resolutionMultiplier, 1, 4);
 
             var canvas = new SnippetCanvasRenderer();
             canvas.SetData(model, preset, shaderName);
+            // Text is drawn in render-target pixels rather than canvas units, so the renderer needs the
+            // panel's pixel scale. Unity 6000.0 and newer expose that as VisualElement.scaledPixelsPerPoint;
+            // below 6000.0 it is internal, and the renderer reads this value instead. The panel is driven at
+            // PanelSettings.scale = multiplier, so that is what it has to be: leaving it at its default of 1
+            // drew every label at 1/multiplier of its intended size at 2x and 4x.
+            canvas.TextPixelScaleOverride = multiplier;
             Vector2 size = canvas.ContentSize;
             if (size.x <= 1f || size.y <= 1f)
             {
-                error = "The canvas came out empty; the graph failed to lay out.";
-                return false;
+                onComplete(false, "The canvas came out empty; the graph failed to lay out.");
+                return;
             }
 
             int width = Mathf.CeilToInt(size.x * multiplier);
             int height = Mathf.CeilToInt(size.y * multiplier);
-            if (!TryValidateSize(width, height, MaxTextureDimension(), MaxPixelBudget, out error)) return false;
-
-            // Everything below allocates GPU memory, a hidden GameObject and a Texture2D. Any throw
-            // from the panel or the encoder would otherwise leave all of it alive: the host object is
-            // HideAndDontSave so it survives scene loads, and a leaked RenderTexture keeps its full
-            // pixel buffer. The finally block is what makes a failed export cost nothing.
-            var target = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
-            target.Create();
-
-            PanelSettings panelSettings = ScriptableObject.CreateInstance<PanelSettings>();
-            GameObject host = null;
-            Texture2D texture = null;
-            RenderTexture previousActive = RenderTexture.active;
-            try
+            if (!TryValidateSize(width, height, MaxTextureDimension(), MaxPixelBudget, out string error))
             {
-                panelSettings.targetTexture = target;
-                panelSettings.scaleMode = PanelScaleMode.ConstantPixelSize;
-                panelSettings.scale = multiplier;
-                panelSettings.clearColor = true;
-                panelSettings.colorClearValue = preset.backgroundMode == SnippetExportPreset.BackgroundMode.Transparent
-                    ? Color.clear
-                    : preset.backgroundColor;
-                panelSettings.clearDepthStencil = true;
-
-                host = new GameObject("ShaderSnapExportHost");
-                host.hideFlags = HideFlags.HideAndDontSave;
-                host.SetActive(false);
-                UIDocument document = host.AddComponent<UIDocument>();
-                document.panelSettings = panelSettings;
-                host.SetActive(true);
-                document.rootVisualElement.Add(canvas);
-
-                object panel = panelProperty.GetValue(panelSettings);
-                if (panel == null)
-                {
-                    error = "The offscreen UI Toolkit panel could not be created.";
-                    return false;
-                }
-
-                // The four calls are reflection because Panel is internal. They are resolved as a set:
-                // skipping one produces a PNG with stale or zeroed layout while still returning true,
-                // which is worse than failing, so ResolvePanelMembers refuses a partial match.
-                applyStylesMethod.Invoke(panel, null);
-                validateLayoutMethod.Invoke(panel, null);
-                updateForRepaintMethod.Invoke(panel, null);
-                renderMethod.Invoke(panel, null);
-
-                RenderTexture.active = target;
-                texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
-                texture.ReadPixels(new Rect(0f, 0f, width, height), 0, 0, false);
-                texture.Apply();
-                RenderTexture.active = previousActive;
-                previousActive = null;
-
-                byte[] png = ImageConversion.EncodeToPNG(texture);
-                if (png == null || png.Length == 0)
-                {
-                    error = "PNG encoding produced no data.";
-                    return false;
-                }
-
-                File.WriteAllBytes(path, png);
-                if (IsInsideProject(path)) AssetDatabase.Refresh();
-                return true;
+                onComplete(false, error);
+                return;
             }
-            catch (Exception exception)
-            {
-                // The panel calls are reflection, so a failure inside them arrives wrapped. Reporting
-                // TargetInvocationException instead of the real cause would tell the user nothing.
-                Exception cause = exception is TargetInvocationException && exception.InnerException != null
-                    ? exception.InnerException
-                    : exception;
-                error = $"Export failed: {cause.GetType().Name}: {cause.Message}";
-                return false;
-            }
-            finally
-            {
-                if (previousActive != null) RenderTexture.active = previousActive;
-                if (texture != null) UnityEngine.Object.DestroyImmediate(texture);
-                if (host != null) UnityEngine.Object.DestroyImmediate(host);
-                if (panelSettings != null) UnityEngine.Object.DestroyImmediate(panelSettings);
-                if (target != null)
-                {
-                    target.Release();
-                    UnityEngine.Object.DestroyImmediate(target);
-                }
-            }
+
+            new RenderJob(canvas, preset, path, width, height, multiplier, onComplete).Start();
         }
 
         /// <summary>
@@ -198,75 +149,245 @@ namespace ShaderSnap.Editor
             return full.StartsWith(projectRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
         }
 
-        static bool ResolvePanelMembers(out string error)
+        /// <summary>
+        /// One export in flight.
+        ///
+        /// It owns every resource the render allocates and releases all of them on every exit path —
+        /// success, a throw, or the timeout — because the host GameObject is <c>HideAndDontSave</c> and
+        /// would otherwise survive scene loads, and a leaked RenderTexture keeps its whole pixel buffer.
+        /// <see cref="RenderTexture.active"/> is global state and is restored for the same reason:
+        /// leaving it pointing at a released texture breaks every later render in the editor, not just
+        /// the next export.
+        /// </summary>
+        sealed class RenderJob
         {
-            error = resolveError;
-            // Only a success is cached. Caching a failure would make a transient problem permanent for
-            // the rest of the session, and the retry costs four lookups on a path that has already
-            // failed.
-            if (membersResolved) return true;
+            readonly SnippetCanvasRenderer canvas;
+            readonly SnippetExportPreset preset;
+            readonly string path;
+            readonly int width;
+            readonly int height;
+            readonly int multiplier;
+            readonly Action<bool, string> onComplete;
 
-            const BindingFlags anyInstance = BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic;
+            RenderTexture target;
+            PanelSettings panelSettings;
+            GameObject host;
+            Texture2D texture;
+            RenderTexture previousActive;
+            bool capturedActive;
+            Color32 clearValue;
 
-            try
+            int ticks;
+            int frames;
+            int lastFrame;
+            double startedAt;
+            bool finished;
+
+            internal RenderJob(SnippetCanvasRenderer canvas, SnippetExportPreset preset, string path,
+                               int width, int height, int multiplier, Action<bool, string> onComplete)
             {
-                panelProperty = typeof(PanelSettings).GetProperty("panel", anyInstance);
-                if (panelProperty == null)
+                this.canvas = canvas;
+                this.preset = preset;
+                this.path = path;
+                this.width = width;
+                this.height = height;
+                this.multiplier = multiplier;
+                this.onComplete = onComplete;
+            }
+
+            internal void Start()
+            {
+                try
                 {
-                    resolveError = error = MissingApi("PanelSettings.panel");
-                    return false;
+                    // Captured first, before anything that can throw: the finally path restores it, and a
+                    // value captured later would be missed by an early failure.
+                    previousActive = RenderTexture.active;
+                    capturedActive = true;
+
+                    target = new RenderTexture(width, height, 24, RenderTextureFormat.ARGB32);
+                    target.Create();
+
+                    panelSettings = ScriptableObject.CreateInstance<PanelSettings>();
+                    panelSettings.targetTexture = target;
+                    panelSettings.scaleMode = PanelScaleMode.ConstantPixelSize;
+                    panelSettings.scale = multiplier;
+                    panelSettings.clearColor = true;
+                    panelSettings.colorClearValue =
+                        preset.backgroundMode == SnippetExportPreset.BackgroundMode.Transparent
+                            ? Color.clear
+                            : preset.backgroundColor;
+                    panelSettings.clearDepthStencil = true;
+
+                    host = new GameObject("ShaderSnapExportHost");
+                    host.hideFlags = HideFlags.HideAndDontSave;
+                    host.SetActive(false);
+                    UIDocument document = host.AddComponent<UIDocument>();
+                    document.panelSettings = panelSettings;
+                    host.SetActive(true);
+                    document.rootVisualElement.Add(canvas);
+
+                    texture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+                    clearValue = panelSettings.colorClearValue;
+                    lastFrame = Time.frameCount;
+                    startedAt = EditorApplication.timeSinceStartup;
+
+                    EditorApplication.update += Tick;
+                    EditorApplication.QueuePlayerLoopUpdate();
                 }
-
-                Type panelType = panelProperty.PropertyType;
-                // The parameterless overload is selected explicitly. A bare GetMethod(name, flags) throws
-                // AmbiguousMatchException if the type ever declares a second overload, and that exception
-                // would escape the bool/out-error contract this method promises.
-                applyStylesMethod = panelType.GetMethod("ApplyStyles", anyInstance, null, Type.EmptyTypes, null);
-                validateLayoutMethod = panelType.GetMethod("ValidateLayout", anyInstance, null, Type.EmptyTypes, null);
-                updateForRepaintMethod = panelType.GetMethod("UpdateForRepaint", anyInstance, null, Type.EmptyTypes, null);
-                renderMethod = panelType.GetMethod("Render", anyInstance, null, Type.EmptyTypes, null);
-
-                // All four or none. ApplyStyles and ValidateLayout lay the tree out, UpdateForRepaint and
-                // Render produce the frame; skipping any of them yields a plausible but wrong image, so
-                // the tool refuses to export rather than write a PNG that looks fine at a glance.
-                string missing = MissingMember();
-                if (missing != null)
+                catch (Exception exception)
                 {
-                    resolveError = error = MissingApi(missing);
-                    return false;
+                    Finish(false, Describe(exception));
                 }
             }
-            catch (Exception exception)
+
+            void Tick()
             {
-                resolveError = error = MissingApi($"{exception.GetType().Name}: {exception.Message}");
+                if (finished) return;
+                ticks++;
+                EditorApplication.QueuePlayerLoopUpdate();
+
+                // Only a player-loop frame can have drawn the panel, so a tick that did not advance the
+                // loop has nothing to look at. Checking that first also keeps a stalled loop cheap: the
+                // editor skips the player loop entirely while its window is in the background, and
+                // without this guard every one of those ticks would pay for a full readback.
+                if (Time.frameCount == lastFrame)
+                {
+                    if (EditorApplication.timeSinceStartup - startedAt >= StallSeconds && frames == 0)
+                        Finish(false, StalledMessage());
+                    else if (Expired()) Finish(false, TimeoutMessage());
+                    return;
+                }
+
+                lastFrame = Time.frameCount;
+                frames++;
+
+                try
+                {
+                    RenderTexture.active = target;
+                    texture.ReadPixels(new Rect(0f, 0f, width, height), 0, 0, false);
+                    texture.Apply();
+                    RenderTexture.active = previousActive;
+                }
+                catch (Exception exception)
+                {
+                    Finish(false, Describe(exception));
+                    return;
+                }
+
+                if (!HasContent())
+                {
+                    if (Expired()) Finish(false, TimeoutMessage());
+                    return;
+                }
+
+                Write();
+            }
+
+            /// <summary>
+            /// Whether the target holds a drawn frame rather than the panel's own clear colour.
+            ///
+            /// The panel clears the target itself, so a target that is uniformly the clear colour is one
+            /// the canvas has not been drawn into yet — waiting another frame is the right response. The
+            /// test is a tolerance rather than an equality: the clear colour survives a round trip
+            /// through an ARGB32 target and back, but a channel one off would otherwise read as content
+            /// and let a blank image be written as a success, which is the one outcome this must not
+            /// produce. A drawn graph covers a large fraction of the canvas (18% or more on the shipped
+            /// fixtures), so a 1% floor separates "drawn" from "cleared, with rounding".
+            ///
+            /// Reading the raw buffer rather than <c>GetPixels32</c> avoids a full copy of an image that
+            /// can be a hundred megapixels.
+            /// </summary>
+            bool HasContent()
+            {
+                const int tolerance = 8;
+
+                NativeArray<Color32> pixels = texture.GetRawTextureData<Color32>();
+                int required = Mathf.Max(1, pixels.Length / 100);
+                int differing = 0;
+                for (int i = 0; i < pixels.Length; i++)
+                {
+                    Color32 pixel = pixels[i];
+                    if (Mathf.Abs(pixel.r - clearValue.r) <= tolerance &&
+                        Mathf.Abs(pixel.g - clearValue.g) <= tolerance &&
+                        Mathf.Abs(pixel.b - clearValue.b) <= tolerance &&
+                        Mathf.Abs(pixel.a - clearValue.a) <= tolerance) continue;
+
+                    differing++;
+                    if (differing >= required) return true;
+                }
                 return false;
             }
 
-            membersResolved = true;
-            resolveError = error = null;
-            return true;
-        }
+            void Write()
+            {
+                byte[] png = ImageConversion.EncodeToPNG(texture);
+                if (png == null || png.Length == 0)
+                {
+                    Finish(false, "PNG encoding produced no data.");
+                    return;
+                }
 
-        /// <summary>
-        /// Names the missing member together with the Unity version the tool is built and tested against,
-        /// so a user on a different version can tell how far away they are instead of just being told
-        /// something is unavailable.
-        /// </summary>
-        static string MissingApi(string member)
-        {
-            return $"The UI Toolkit panel rendering API is unavailable on this Unity version ({member}). " +
-                   $"ShaderSnap {ShaderSnapVersion} is built and tested against Unity 6000.3.";
-        }
+                try
+                {
+                    File.WriteAllBytes(path, png);
+                    if (IsInsideProject(path)) AssetDatabase.Refresh();
+                }
+                catch (Exception exception)
+                {
+                    Finish(false, Describe(exception));
+                    return;
+                }
 
-        const string ShaderSnapVersion = "1.0.0";
+                Finish(true, null);
+            }
 
-        static string MissingMember()
-        {
-            if (applyStylesMethod == null) return "ApplyStyles";
-            if (validateLayoutMethod == null) return "ValidateLayout";
-            if (updateForRepaintMethod == null) return "UpdateForRepaint";
-            if (renderMethod == null) return "Render";
-            return null;
+            bool Expired()
+            {
+                return frames >= MaxRenderFrames ||
+                       EditorApplication.timeSinceStartup - startedAt >= RenderTimeoutSeconds;
+            }
+
+            string TimeoutMessage()
+            {
+                return $"The offscreen panel did not render within {frames} frames " +
+                       $"({ticks} editor updates).";
+            }
+
+            /// <summary>
+            /// The editor ran our ticks but never the player loop, which is what happens while the editor
+            /// window is in the background: the panel can only draw inside a player-loop frame, so no
+            /// amount of waiting would have produced an image.
+            /// </summary>
+            string StalledMessage()
+            {
+                return $"The offscreen panel did not render within {ticks} editor updates: the editor " +
+                       "player loop did not run, and the panel only draws inside it. Bring the Unity " +
+                       "editor window to the front and export again.";
+            }
+
+            static string Describe(Exception exception)
+            {
+                return $"Export failed: {exception.GetType().Name}: {exception.Message}";
+            }
+
+            void Finish(bool success, string error)
+            {
+                if (finished) return;
+                finished = true;
+                EditorApplication.update -= Tick;
+
+                if (capturedActive) RenderTexture.active = previousActive;
+                if (texture != null) UnityEngine.Object.DestroyImmediate(texture);
+                if (host != null) UnityEngine.Object.DestroyImmediate(host);
+                if (panelSettings != null) UnityEngine.Object.DestroyImmediate(panelSettings);
+                if (target != null)
+                {
+                    target.Release();
+                    UnityEngine.Object.DestroyImmediate(target);
+                }
+
+                onComplete(success, error);
+            }
         }
     }
 }

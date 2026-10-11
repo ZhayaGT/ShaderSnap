@@ -67,15 +67,6 @@ namespace ShaderSnap.Editor
             return Path.Combine(FileRoot, relativePath.TrimStart('/'));
         }
 
-        /// <summary>Absolute path to one of the <c>.shadergraph</c> fixtures, which live in a <c>~</c> folder.</summary>
-        public static string Fixture(string fileName)
-        {
-            return File("Tests/Fixtures~/" + fileName);
-        }
-
-        /// <summary>Absolute path to the folder holding the committed visual baselines.</summary>
-        public static string ReferenceFolder => File("Tests/Reference~");
-
         static string ResolveFileRoot()
         {
             UnityEditor.PackageManager.PackageInfo info = FindPackage();

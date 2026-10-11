@@ -350,6 +350,7 @@ namespace ShaderSnap.Core
         {
             if (preset.backgroundMode == SnippetExportPreset.BackgroundMode.Transparent) return;
 
+#if UNITY_6000_3_OR_NEWER
             if (preset.backgroundMode == SnippetExportPreset.BackgroundMode.Gradient)
             {
                 painter.fillColor = Color.white;
@@ -369,6 +370,15 @@ namespace ShaderSnap.Core
             {
                 painter.fillColor = preset.backgroundColor;
             }
+#else
+            // Painter2D.fillGradient and the FillGradient type do not exist before Unity 6000.3. The two
+            // gradient modes degrade to a flat fill so the graph still exports: the backdrop is cosmetic and
+            // the node flow is not. backgroundGradientTop is the colour the gradient starts from, so the
+            // result reads as the same palette rather than as an unrelated default.
+            painter.fillColor = preset.backgroundMode == SnippetExportPreset.BackgroundMode.SolidColor
+                ? preset.backgroundColor
+                : preset.backgroundGradientTop;
+#endif
 
             painter.BeginPath();
             painter.MoveTo(new Vector2(0f, 0f));
@@ -377,7 +387,9 @@ namespace ShaderSnap.Core
             painter.LineTo(new Vector2(0f, contentSize.y));
             painter.ClosePath();
             painter.Fill(FillRule.NonZero);
+#if UNITY_6000_3_OR_NEWER
             painter.fillGradient = default;
+#endif
         }
     }
 }

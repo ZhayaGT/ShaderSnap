@@ -221,23 +221,32 @@ The supported route is `PanelSettings.targetTexture` plus `PanelSettings.scale`.
 and `scale = n`, one canvas unit becomes `n` pixels, and the panel lays the tree out again at that scale.
 The result is genuine supersampling: vectors and text are rasterised at full resolution, not upscaled.
 
-### Reflection is used, and failure is loud
+### The panel is driven by the editor loop, and the export is asynchronous
 
-`PanelSettings.panel` is an internal property, and `ApplyStyles`, `ValidateLayout`, `UpdateForRepaint` and
-`Render` are methods on the internal `Panel` type. There is no public API for rendering a UI Toolkit tree
-offscreen.
+`PanelSettings.targetTexture` says where the panel draws; no public API makes it draw now. The panel draws
+inside the player loop, so the exporter queues a player-loop update on every editor tick and watches the
+target until the canvas appears in it.
 
-All four are therefore resolved as a set. Skipping a missing one would produce a PNG with a stale or zeroed
-layout that still looks plausible — worse than an error. Export refuses, and the message names the missing
-member and the Unity version the tool is tested against.
+That is a deliberate trade against the alternative. Unity's own panel object is internal, and its four
+layout-and-draw methods can be reached by reflection — which is what this exporter used to do. Reflection
+works, and works synchronously, but it is a dependency on private members of the engine, and it is
+forbidden to packages published on the Unity Asset Store (§2.5.g of the submission guidelines). A public
+path that is one editor tick slower is worth not depending on internals that a patch release can rename.
 
-### Everything is released in a `finally`
+The visible cost is that the export cannot answer with a `bool`: it reports through a callback, and the
+window disables its export button until the callback runs. The invisible cost is that an editor window in
+the background does not run the player loop at all, so an export started there cannot draw. The exporter
+detects that and says so instead of waiting; from the window it never happens, because the window is in
+front when the button is clicked.
 
-Between creating the `RenderTexture` and writing the file, the exporter owns a `RenderTexture`, a
-`PanelSettings`, a hidden `GameObject` (with `HideFlags.HideAndDontSave`, so it survives scene loads), a
-`Texture2D` readback buffer, and the global `RenderTexture.active`. Any throw from the reflected calls, from
-`ReadPixels` or from the encoder would otherwise leak all of them and leave `RenderTexture.active` pointing
-at a released texture, breaking every later render in the editor.
+### Everything is released on every exit path
+
+An export owns a `RenderTexture`, a `PanelSettings`, a hidden `GameObject` (with `HideFlags.HideAndDontSave`,
+so it survives scene loads), a `Texture2D` readback buffer, and the global `RenderTexture.active`. It now also
+spans several editor ticks, so a leak is easier to cause than it used to be: any of them can be the last.
+All five are released on success, on a throw from `ReadPixels` or from the encoder, and on the timeout —
+and the `EditorApplication.update` subscription is dropped with them, since a callback left behind would keep
+the whole job alive for the rest of the session.
 
 ### Blurred-editor background is a gradient, not a capture
 
@@ -257,6 +266,57 @@ The frame now fills only the title bar and strokes the border, leaving the body 
 test guards this: with the bug reintroduced, the exported PNG loses all node pixels.
 
 ## Packaging
+
+### The package installs on Unity 2022.3 and newer
+
+`package.json` declares `"unity": "2022.3"` with `"unityRelease": "0f1"`, the lowest distributed 2022.3
+patch, so every 2022.3.x accepts the package. It was `6000.3` before, which made the Package Manager refuse
+to install the tool in any older project regardless of whether the code would have worked there.
+
+Everything the renderer needs exists in 2022.3 except two APIs, and both already sat behind `#if` gates:
+
+| API | First version | 2022.3 state | Gate |
+|---|---|---|---|
+| `Painter2D.fillGradient`, `FillGradient`, `AddressMode` | 6000.3 | absent | `SnippetCanvasRenderer.Bands.cs` |
+| `VisualElement.scaledPixelsPerPoint` | 6000.0 (public) | present but `internal` | `SnippetCanvasRenderer.cs` |
+
+The gates are load-bearing, and they are what makes the floor 2022.3 rather than lower: 2022.1 has
+`Painter2D` but no `MeshGenerationContext.DrawText`, so nothing could be drawn at all, and 2022.2 is
+end-of-life and was never verified. Both gates stay as they are.
+
+The gated text path had one real defect, now fixed: `TextPixelScaleOverride` was declared and read but never
+written, so below 6000.0 an export at 2x or 4x drew every label at `1/multiplier` of its intended size. The
+exporter sets it to the multiplier it drives `PanelSettings.scale` with, which is the value the engine
+reports for that panel: `BaseRuntimePanel.scaledPixelsPerPoint` is `m_PixelsPerPoint * m_Scale`,
+`PanelSettings.ResolveScale` leaves `resolvedScale` at 1 for `ConstantPixelSize` and then divides by
+`scale`, and `m_PixelsPerPoint` defaults to 1 and is set by nothing in `PanelSettings`, `RuntimePanel`,
+`EditorPanel` or `UIElementsUtility`. Measured on a 6000.3 editor, a `UIDocument` panel with
+`PanelSettings.scale` of 1, 2 and 4 reports `scaledPixelsPerPoint` of exactly 1, 2 and 4.
+
+The override is deliberately *not* the only source of the value on every version. `scaledPixelsPerPoint` may
+fold in the editor DPI on a HiDPI machine — unmeasurable here, where `EditorGUIUtility.pixelsPerPoint` is 1
+— so making the override authoritative everywhere could change 6000.x output on those machines for no gain.
+
+`ShaderSnapCapabilities` carries what the window needs to know. Below 6000.3 the Background section offers a
+`PopupField` over Solid Color and Transparent only, because offering Gradient or Blurred Editor would let the
+user pick a mode the renderer silently draws as a flat fill. A preset saved on a newer editor is coerced to
+Solid Color on load and the status line says why. The capability is a `const bool` from
+`UNITY_6000_3_OR_NEWER`, a Unity built-in symbol, so no `.asmdef` version define is needed;
+`ShaderSnap.Core.asmdef` keeps `versionDefines: []`.
+
+The filter takes the capability as a parameter rather than reading the constant, so
+`ShaderSnapCapabilitiesTests` exercises the unavailable-mode branch on an editor that has the feature. What
+that does not do is run the branch on a real 2022.3 editor: no 2022.3 editor is installed here and the CI
+runner is headless, so the `2022.3.76f1` matrix row proves compilation against 2022.3's API surface and
+nothing about the render.
+
+What is therefore *not* proven, stated plainly rather than papered over:
+
+| Unproven | Why, and what is proven instead |
+|---|---|
+| A 2022.3 export produces correctly sized text | The pre-6000.0 path never executes on any available editor. Proven instead: the override's value equals what the engine reports for that panel, the panel-scale arithmetic is read from the 2022.3 sources, and the 6000.3 export is byte-identical with and without the override. |
+| The pre-6000.3 window branch runs | `GradientBackgrounds` is true on 6000.3, so `AddBackgroundModeField` takes the `EnumField` branch. Proven instead: the filter it uses is unit-tested, and the popup construction was exercised against the real window by forcing the capability false at runtime. |
+| `Samples~/PortTypes` opens on 2022.3 | The graph was authored with Shader Graph 17.3; 2022.3 ships 14.x and may refuse or warn on a newer-authored asset. ShaderSnap is unaffected — it parses the JSON directly and never asks Shader Graph to open the file — but the sample is an asset a 2022.3 user will import. |
 
 ### Everything is editor-only
 
@@ -326,6 +386,7 @@ unused-asset sweep can reclaim the orphan after a reload.
 | Companion JSON metadata alongside the PNG | Nothing consumed it; the PNG is the deliverable |
 | Expanding sub-graphs inline | A sub-graph is drawn as a single node. Expanding it changes the graph's semantics on the page and would need a whole interaction model |
 | A public runtime API | The tool is editor-only by design |
+| Unity 2022.1 and older | `MeshGenerationContext.DrawText` first appears in 2022.2, so 2022.1 has no way to draw text at all; supporting it would mean replacing the whole `Painter2D` path with mesh allocation, which is a rewrite rather than a version gate |
 
 ## Verification
 

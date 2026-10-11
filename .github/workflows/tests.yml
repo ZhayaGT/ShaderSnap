@@ -44,6 +44,10 @@ jobs:
       fail-fast: false
       matrix:
         unityVersion:
+          # The package's declared minimum. Compiles the pre-6000.0 and pre-6000.3 branches against the
+          # APIs of the version they are written for; the graphics tests skip there because the runner is
+          # headless, so this proves compilation, not the render.
+          - 2022.3.76f1
           - 6000.3.1f1
 
     steps:
